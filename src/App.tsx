@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -17,6 +17,7 @@ import { exportElementAsPdf } from "./pdfExport";
 import { AnalysisResult, BrandSettings } from "./types";
 
 type Status = "idle" | "reading" | "analysing" | "ready" | "exporting" | "error";
+type WorkerStatus = "idle" | "checking" | "configured" | "missing-key" | "unreachable";
 
 const DEFAULT_BRAND: BrandSettings = {
   companyName: "Target employer",
@@ -35,6 +36,9 @@ export function App() {
   const [workerUrl, setWorkerUrl] = useState(
     () => sessionStorage.getItem("cv-job-tailor-worker-url") || DEFAULT_WORKER_URL,
   );
+  const [isEditingWorkerUrl, setIsEditingWorkerUrl] = useState(() => !DEFAULT_WORKER_URL);
+  const [showPersonalKey, setShowPersonalKey] = useState(() => Boolean(sessionStorage.getItem("openai-api-key")));
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatus>("idle");
   const [cvFileName, setCvFileName] = useState("");
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
@@ -49,9 +53,41 @@ export function App() {
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const canAnalyse = useMemo(
-    () => apiKey.trim() && (jobUrl.trim() || jobText.trim()) && cvText.trim(),
-    [apiKey, jobText, jobUrl, cvText],
+    () => (apiKey.trim() || workerUrl.trim()) && (jobUrl.trim() || jobText.trim()) && cvText.trim(),
+    [apiKey, jobText, jobUrl, cvText, workerUrl],
   );
+  const hasConfiguredWorkerUrl = Boolean(DEFAULT_WORKER_URL && workerUrl.trim() === DEFAULT_WORKER_URL);
+  const hasWorkerOpenAiKey = workerStatus === "configured";
+  const shouldShowKeyInput = showPersonalKey || apiKey.trim() || !hasWorkerOpenAiKey;
+
+  useEffect(() => {
+    if (!workerUrl.trim()) {
+      setWorkerStatus("idle");
+      return;
+    }
+
+    const controller = new AbortController();
+    async function checkWorker() {
+      try {
+        setWorkerStatus("checking");
+        const response = await fetch(`${workerUrl.replace(/\/+$/, "")}/status`, {
+          signal: controller.signal,
+        });
+        const payload = (await response.json()) as { hasOpenAiKey?: boolean };
+        if (!response.ok) {
+          throw new Error("Worker status check failed.");
+        }
+        setWorkerStatus(payload.hasOpenAiKey ? "configured" : "missing-key");
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setWorkerStatus("unreachable");
+        }
+      }
+    }
+
+    checkWorker();
+    return () => controller.abort();
+  }, [workerUrl]);
 
   function saveKey(value: string) {
     setApiKey(value);
@@ -69,6 +105,12 @@ export function App() {
     } else {
       sessionStorage.removeItem("cv-job-tailor-worker-url");
     }
+  }
+
+  function resetWorkerUrl() {
+    sessionStorage.removeItem("cv-job-tailor-worker-url");
+    setWorkerUrl(DEFAULT_WORKER_URL);
+    setIsEditingWorkerUrl(false);
   }
 
   async function handleCvUpload(file?: File) {
@@ -113,6 +155,7 @@ export function App() {
 
       const result = await analyseCvAgainstJob({
         apiKey,
+        workerUrl,
         jobText: job.text,
         cvText,
         employerHint: brand.companyName || job.brand.companyName,
@@ -202,18 +245,37 @@ export function App() {
 
       <section className="workspace-grid">
         <div className="input-stack">
-          <Panel icon={<KeyRound />} title="1. OpenAI key">
-            <label>
-              API key
-              <input
-                value={apiKey}
-                onChange={(event) => saveKey(event.target.value)}
-                type="password"
-                autoComplete="off"
-                placeholder="sk-..."
-              />
-            </label>
-            <p className="hint">Stored only in this browser session so GitHub Pages never contains a secret.</p>
+          <Panel icon={<KeyRound />} title="1. OpenAI access">
+            {hasWorkerOpenAiKey ? (
+              <div className="config-summary">
+                <BadgeCheck aria-hidden="true" />
+                <div>
+                  <strong>OpenAI key is configured</strong>
+                  <span>The Cloudflare Worker will handle analysis. No personal key is needed here.</span>
+                </div>
+              </div>
+            ) : null}
+            {shouldShowKeyInput ? (
+              <label className={hasWorkerOpenAiKey ? "fallback-muted" : ""}>
+                Personal API key
+                <input
+                  value={apiKey}
+                  disabled={hasWorkerOpenAiKey && !showPersonalKey}
+                  onChange={(event) => saveKey(event.target.value)}
+                  type="password"
+                  autoComplete="off"
+                  placeholder="sk-..."
+                />
+              </label>
+            ) : null}
+            {hasWorkerOpenAiKey && !showPersonalKey ? (
+              <button className="text-action" type="button" onClick={() => setShowPersonalKey(true)}>
+                Use a personal key instead
+              </button>
+            ) : null}
+            <p className="hint">
+              Personal keys stay only in this browser session. The shared key, when configured, stays inside Cloudflare.
+            </p>
           </Panel>
 
           <Panel icon={<Link />} title="2. Job description">
@@ -260,16 +322,36 @@ export function App() {
           </Panel>
 
           <Panel icon={<Palette />} title="4. Employer brand">
-            <label>
-              Cloudflare Worker URL
-              <input
-                value={workerUrl}
-                onChange={(event) => saveWorkerUrl(event.target.value)}
-                type="url"
-                placeholder="https://cv-job-tailor-reader.your-account.workers.dev"
-              />
-            </label>
-            <p className="hint">Optional website reader used when employer pages block GitHub Pages.</p>
+            {hasConfiguredWorkerUrl && !isEditingWorkerUrl ? (
+              <div className="config-summary">
+                <BadgeCheck aria-hidden="true" />
+                <div>
+                  <strong>Worker URL loaded</strong>
+                  <span>{formatWorkerStatus(workerStatus)}</span>
+                </div>
+                <button className="text-action" type="button" onClick={() => setIsEditingWorkerUrl(true)}>
+                  Change
+                </button>
+              </div>
+            ) : (
+              <>
+                <label>
+                  Cloudflare Worker URL
+                  <input
+                    value={workerUrl}
+                    onChange={(event) => saveWorkerUrl(event.target.value)}
+                    type="url"
+                    placeholder="https://cv-job-tailor-reader.your-account.workers.dev"
+                  />
+                </label>
+                {DEFAULT_WORKER_URL && workerUrl !== DEFAULT_WORKER_URL ? (
+                  <button className="text-action" type="button" onClick={resetWorkerUrl}>
+                    Use deployed Worker URL
+                  </button>
+                ) : null}
+                <p className="hint">{formatWorkerStatus(workerStatus)}</p>
+              </>
+            )}
             <label>
               Employer website
               <input
@@ -433,6 +515,22 @@ function Panel(props: { icon: React.ReactNode; title: string; children: React.Re
       {props.children}
     </section>
   );
+}
+
+function formatWorkerStatus(status: WorkerStatus): string {
+  if (status === "checking") {
+    return "Checking the configured Worker...";
+  }
+  if (status === "configured") {
+    return "Website reading and shared OpenAI analysis are ready.";
+  }
+  if (status === "missing-key") {
+    return "Website reading is ready, but the Worker is missing its OpenAI key secret.";
+  }
+  if (status === "unreachable") {
+    return "The Worker could not be reached from this browser.";
+  }
+  return "Optional website reader used when employer pages block GitHub Pages.";
 }
 
 function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
