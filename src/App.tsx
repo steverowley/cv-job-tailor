@@ -11,7 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { extractCvText } from "./documentParser";
-import { readJobDescription } from "./jobReader";
+import { BrandReadError, readEmployerBrand, readJobDescription } from "./jobReader";
 import { analyseCvAgainstJob } from "./openai";
 import { exportElementAsPdf } from "./pdfExport";
 import { AnalysisResult, BrandSettings } from "./types";
@@ -28,12 +28,14 @@ export function App() {
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem("openai-api-key") || "");
   const [jobUrl, setJobUrl] = useState("");
   const [jobText, setJobText] = useState("");
+  const [employerWebsiteUrl, setEmployerWebsiteUrl] = useState("");
   const [cvFileName, setCvFileName] = useState("");
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
+  const [brandMessage, setBrandMessage] = useState("Add the employer website to make the PDF match their public brand signals.");
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const canAnalyse = useMemo(
@@ -76,17 +78,20 @@ export function App() {
       setStatus("analysing");
       setMessage("Reading the job details and comparing them with the CV...");
       const job = await readJobDescription(jobUrl, jobText);
-      setBrand((current) => ({
-        ...current,
-        ...job.brand,
-        companyName: current.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : current.companyName,
-      }));
+      if (!employerWebsiteUrl.trim()) {
+        setBrand((current) => ({
+          ...current,
+          ...job.brand,
+          companyName:
+            current.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : current.companyName,
+        }));
+      }
 
       const result = await analyseCvAgainstJob({
         apiKey,
         jobText: job.text,
         cvText,
-        employerHint: job.brand.companyName,
+        employerHint: brand.companyName || job.brand.companyName,
       });
 
       setAnalysis(result);
@@ -94,6 +99,23 @@ export function App() {
       setStatus("ready");
     } catch (error) {
       showError(error);
+    }
+  }
+
+  async function generateBrand() {
+    try {
+      setStatus("reading");
+      setBrandMessage("Reading public brand signals from the employer website...");
+      const generatedBrand = await readEmployerBrand(employerWebsiteUrl);
+      setBrand(generatedBrand);
+      setBrandMessage("Brand generated from the employer website. You can still fine-tune it before export.");
+      setStatus("idle");
+    } catch (error) {
+      if (error instanceof BrandReadError) {
+        setBrand((current) => ({ ...current, ...error.fallbackBrand }));
+      }
+      setBrandMessage(error instanceof Error ? error.message : "The employer website could not be read.");
+      setStatus("error");
     }
   }
 
@@ -190,7 +212,32 @@ export function App() {
             {cvText ? <p className="hint">{cvText.length.toLocaleString()} characters extracted locally.</p> : null}
           </Panel>
 
-          <Panel icon={<Palette />} title="4. Brand controls">
+          <Panel icon={<Palette />} title="4. Employer brand">
+            <label>
+              Employer website
+              <input
+                value={employerWebsiteUrl}
+                onChange={(event) => setEmployerWebsiteUrl(event.target.value)}
+                type="url"
+                placeholder="https://employer.com"
+              />
+            </label>
+            <button
+              className="brand-action"
+              disabled={!employerWebsiteUrl.trim() || status === "reading"}
+              onClick={generateBrand}
+            >
+              <Palette aria-hidden="true" />
+              Generate brand from website
+            </button>
+            <p className="hint">{brandMessage}</p>
+            <div className="brand-preview">
+              <div className="brand-swatch" style={{ background: brand.primaryColor }} />
+              <div>
+                <strong>{brand.companyName}</strong>
+                <span>{brand.logoUrl ? "Logo found" : "No logo detected yet"}</span>
+              </div>
+            </div>
             <div className="brand-row">
               <label>
                 Employer name
@@ -208,6 +255,7 @@ export function App() {
                 />
               </label>
             </div>
+            <p className="hint">These overrides are useful when the employer website blocks browser reads.</p>
             <div className="swatches">
               <label>
                 Primary
