@@ -115,15 +115,29 @@ const schema = {
 } as const;
 
 export async function analyseCvAgainstJob(params: {
-  apiKey: string;
+  apiKey?: string;
+  workerUrl?: string;
   jobText: string;
   cvText: string;
   employerHint?: string;
 }): Promise<AnalysisResult> {
-  const { apiKey, jobText, cvText, employerHint } = params;
+  const { apiKey = "", workerUrl = "", jobText, cvText, employerHint } = params;
+
+  const body = buildAnalysisBody(jobText, cvText, employerHint);
+
+  if (!apiKey.trim() && workerUrl.trim()) {
+    const response = await fetch(`${workerUrl.replace(/\/+$/, "")}/analyse`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    return parseAnalysisResponse(response);
+  }
 
   if (!apiKey.trim()) {
-    throw new Error("Add your OpenAI API key before analysing the CV.");
+    throw new Error("Add your OpenAI API key or configure the Cloudflare Worker secret before analysing the CV.");
   }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
@@ -132,37 +146,45 @@ export async function analyseCvAgainstJob(params: {
       Authorization: `Bearer ${apiKey.trim()}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      model: MODEL,
-      input: [
-        {
-          role: "system",
-          content:
-            "You tailor CVs for job applications. You must be evidence-only: never invent experience, employers, qualifications, dates, tools, outcomes, or responsibilities. If a requirement is not clearly supported by the CV, mark it as a gap.",
-        },
-        {
-          role: "user",
-          content: [
-            `Employer hint: ${employerHint || "Unknown"}`,
-            "JOB DESCRIPTION:",
-            jobText.slice(0, 18000),
-            "CV TEXT:",
-            cvText.slice(0, 18000),
-            "Return both a review and a full, usable, evidence-only CV. The fullCv field must be a complete CV document built from the existing CV content, tailored toward the job. Preserve real contact details, roles, organisations, dates, education, and certifications when present. Reorder, select, and rewrite only where supported by the CV. Do not include unsupported job requirements in the CV; put them in gaps instead.",
-          ].join("\n\n"),
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "cv_tailoring_analysis",
-          strict: true,
-          schema,
-        },
-      },
-    }),
+    body: JSON.stringify(body),
   });
 
+  return parseAnalysisResponse(response);
+}
+
+function buildAnalysisBody(jobText: string, cvText: string, employerHint?: string) {
+  return {
+    model: MODEL,
+    input: [
+      {
+        role: "system",
+        content:
+          "You tailor CVs for job applications. You must be evidence-only: never invent experience, employers, qualifications, dates, tools, outcomes, or responsibilities. If a requirement is not clearly supported by the CV, mark it as a gap.",
+      },
+      {
+        role: "user",
+        content: [
+          `Employer hint: ${employerHint || "Unknown"}`,
+          "JOB DESCRIPTION:",
+          jobText.slice(0, 18000),
+          "CV TEXT:",
+          cvText.slice(0, 18000),
+          "Return both a review and a full, usable, evidence-only CV. The fullCv field must be a complete CV document built from the existing CV content, tailored toward the job. Preserve real contact details, roles, organisations, dates, education, and certifications when present. Reorder, select, and rewrite only where supported by the CV. Do not include unsupported job requirements in the CV; put them in gaps instead.",
+        ].join("\n\n"),
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "cv_tailoring_analysis",
+        strict: true,
+        schema,
+      },
+    },
+  };
+}
+
+async function parseAnalysisResponse(response: Response): Promise<AnalysisResult> {
   const payload = await response.json();
 
   if (!response.ok) {
