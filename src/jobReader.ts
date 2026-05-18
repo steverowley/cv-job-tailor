@@ -15,6 +15,8 @@ const DEFAULT_BRAND: BrandSettings = {
   accentColor: "#d3a84f",
 };
 
+const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
+
 export class BrandReadError extends Error {
   constructor(
     message: string,
@@ -28,18 +30,14 @@ export class BrandReadError extends Error {
 export async function readJobDescription(
   jobUrl: string,
   pastedText: string,
+  workerUrl = DEFAULT_WORKER_URL,
 ): Promise<JobReadResult> {
   const trimmedUrl = jobUrl.trim();
   const trimmedText = pastedText.trim();
 
   if (trimmedUrl) {
     try {
-      const response = await fetch(trimmedUrl);
-      if (!response.ok) {
-        throw new Error(`The page responded with ${response.status}.`);
-      }
-
-      const html = await response.text();
+      const html = await readPageHtml(trimmedUrl, workerUrl);
       const parsed = parseHtmlPage(html, trimmedUrl);
       if (parsed.text.length < 300) {
         throw new Error("The page did not expose enough readable job text.");
@@ -80,7 +78,11 @@ export async function readJobDescription(
   };
 }
 
-export async function readEmployerBrand(websiteUrl: string, pastedBrandSource: string): Promise<BrandSettings> {
+export async function readEmployerBrand(
+  websiteUrl: string,
+  pastedBrandSource: string,
+  workerUrl = DEFAULT_WORKER_URL,
+): Promise<BrandSettings> {
   const trimmedUrl = websiteUrl.trim();
   const trimmedBrandSource = pastedBrandSource.trim();
 
@@ -93,12 +95,7 @@ export async function readEmployerBrand(websiteUrl: string, pastedBrandSource: s
   }
 
   try {
-    const response = await fetch(trimmedUrl);
-    if (!response.ok) {
-      throw new Error(`The website responded with ${response.status}.`);
-    }
-
-    const html = await response.text();
+    const html = await readPageHtml(trimmedUrl, workerUrl);
     return parseHtmlPage(html, trimmedUrl).brand;
   } catch (error) {
     const fallback = buildFallbackBrand(trimmedUrl);
@@ -107,6 +104,56 @@ export async function readEmployerBrand(websiteUrl: string, pastedBrandSource: s
       fallback,
     );
   }
+}
+
+async function readPageHtml(pageUrl: string, workerUrl: string): Promise<string> {
+  const trimmedWorkerUrl = workerUrl.trim();
+  if (trimmedWorkerUrl) {
+    try {
+      return await readViaWorker(pageUrl, trimmedWorkerUrl);
+    } catch (workerError) {
+      try {
+        return await readDirectly(pageUrl);
+      } catch (directError) {
+        throw new Error(
+          `Worker read failed: ${formatError(workerError)} Browser read failed: ${formatError(directError)}`,
+        );
+      }
+    }
+  }
+
+  return readDirectly(pageUrl);
+}
+
+async function readViaWorker(pageUrl: string, workerUrl: string): Promise<string> {
+  const response = await fetch(`${workerUrl.replace(/\/+$/, "")}/read`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ url: pageUrl }),
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`The Worker responded with ${response.status}. ${details}`);
+  }
+
+  const payload = (await response.json()) as { html?: string };
+  if (!payload.html) {
+    throw new Error("The Worker did not return page HTML.");
+  }
+
+  return payload.html;
+}
+
+async function readDirectly(pageUrl: string): Promise<string> {
+  const response = await fetch(pageUrl);
+  if (!response.ok) {
+    throw new Error(`The page responded with ${response.status}.`);
+  }
+
+  return response.text();
 }
 
 export function parseBrandSource(source: string, websiteUrl: string): BrandSettings {
