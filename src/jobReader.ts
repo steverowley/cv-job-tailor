@@ -80,10 +80,16 @@ export async function readJobDescription(
   };
 }
 
-export async function readEmployerBrand(websiteUrl: string): Promise<BrandSettings> {
+export async function readEmployerBrand(websiteUrl: string, pastedBrandSource: string): Promise<BrandSettings> {
   const trimmedUrl = websiteUrl.trim();
+  const trimmedBrandSource = pastedBrandSource.trim();
+
+  if (trimmedBrandSource) {
+    return parseBrandSource(trimmedBrandSource, trimmedUrl);
+  }
+
   if (!trimmedUrl) {
-    throw new Error("Add the employer website URL first.");
+    throw new Error("Add the employer website URL or paste brand details first.");
   }
 
   try {
@@ -101,6 +107,28 @@ export async function readEmployerBrand(websiteUrl: string): Promise<BrandSettin
       fallback,
     );
   }
+}
+
+export function parseBrandSource(source: string, websiteUrl: string): BrandSettings {
+  const looksLikeHtml = /<\/?[a-z][\s\S]*>/i.test(source);
+
+  if (looksLikeHtml) {
+    return parseHtmlPage(source, websiteUrl || "https://example.com").brand;
+  }
+
+  const companyName =
+    source.match(/(?:company|employer|organisation|organization|brand)\s*:\s*(.+)/i)?.[1]?.split("\n")[0].trim() ||
+    getHostName(websiteUrl) ||
+    source.split("\n").find((line) => line.trim().length > 2)?.trim() ||
+    DEFAULT_BRAND.companyName;
+  const colors = Array.from(source.matchAll(/#[0-9a-f]{3,8}\b/gi)).map((match) => match[0]);
+
+  return {
+    companyName,
+    logoUrl: source.match(/https?:\/\/\S+\.(?:png|jpg|jpeg|svg|webp|ico)/i)?.[0],
+    primaryColor: normalizeColor(colors[0] || "", DEFAULT_BRAND.primaryColor),
+    accentColor: normalizeColor(colors[1] || "", deriveAccentColor(colors[0] || DEFAULT_BRAND.primaryColor)),
+  };
 }
 
 export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult, "source"> {
