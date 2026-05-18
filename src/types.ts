@@ -60,4 +60,9 @@ export interface BrandSettings {
   logoUrl?: string;
   primaryColor: string;
   accentColor: string;
+  backgroundColor?: string;
+  textColor?: string;
+  fontFamily?: string;
+  layoutStyle?: "editorial" | "executive" | "technical" | "classic";
+  palette?: string[];
 }
