@@ -34,6 +34,7 @@ export function App() {
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
+  const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
   const [brandMessage, setBrandMessage] = useState("Add the employer website to make the PDF match their public brand signals.");
@@ -96,6 +97,7 @@ export function App() {
       });
 
       setAnalysis(result);
+      setActiveOutput("review");
       setMessage(job.warning || "Analysis complete. Review the evidence before exporting.");
       setStatus("ready");
     } catch (error) {
@@ -303,8 +305,27 @@ export function App() {
         </div>
 
         <div className="review-stack">
-          <ReviewPanel analysis={analysis} />
-          <CvPreview refElement={pdfRef} analysis={analysis} brand={brand} />
+          <div className="output-tabs" aria-label="Output view">
+            <button
+              className={activeOutput === "review" ? "active" : ""}
+              onClick={() => setActiveOutput("review")}
+              type="button"
+            >
+              Review
+            </button>
+            <button
+              className={activeOutput === "cv" ? "active" : ""}
+              onClick={() => setActiveOutput("cv")}
+              type="button"
+            >
+              CV
+            </button>
+          </div>
+          {activeOutput === "review" ? (
+            <ReviewPanel analysis={analysis} />
+          ) : (
+            <CvPreview refElement={pdfRef} analysis={analysis} brand={brand} />
+          )}
           <button className="secondary-action" disabled={!analysis || status === "exporting"} onClick={exportPdf}>
             <Download aria-hidden="true" />
             Download branded PDF
