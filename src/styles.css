@@ -105,9 +105,23 @@ h1 {
   opacity: 0.48;
 }
 
+.fallback-section {
+  border-top: 1px solid #e1d9cc;
+  margin-top: 14px;
+  padding-top: 14px;
+}
+
+.fallback-section h3 {
+  margin-bottom: 8px;
+}
+
 .fallback-muted input,
 .fallback-muted textarea {
   background: #f3eee5;
+}
+
+.fallback-muted input:disabled {
+  cursor: not-allowed;
 }
 
 .workspace-grid {
@@ -416,7 +430,7 @@ button:disabled {
 }
 
 .skill-required,
-skill-tool {
+.skill-tool {
   border-color: #b9c4b7;
 }
 
