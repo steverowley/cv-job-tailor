@@ -5,9 +5,10 @@ const ALLOWED_ORIGINS = new Set([
 ]);
 
 const MAX_HTML_LENGTH = 500_000;
+const MAX_ANALYSIS_BODY_LENGTH = 120_000;
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) {
     const origin = request.headers.get("origin") || "";
     const corsHeaders = buildCorsHeaders(origin);
 
@@ -19,8 +20,20 @@ export default {
     }
 
     const url = new URL(request.url);
+    if (!ALLOWED_ORIGINS.has(origin)) {
+      return json({ error: "This Worker only accepts requests from the CV Job Tailor app." }, 403, corsHeaders);
+    }
+
+    if (url.pathname === "/status" && request.method === "GET") {
+      return json({ hasOpenAiKey: Boolean(env.OPENAI_API_KEY) }, 200, corsHeaders);
+    }
+
+    if (url.pathname === "/analyse" && request.method === "POST") {
+      return analyseWithOpenAI(request, env, corsHeaders);
+    }
+
     if (url.pathname !== "/read" || request.method !== "POST") {
-      return json({ error: "Use POST /read with a JSON body containing { url }." }, 404, corsHeaders);
+      return json({ error: "Use GET /status, POST /read with { url }, or POST /analyse with an OpenAI Responses API body." }, 404, corsHeaders);
     }
 
     try {
@@ -60,15 +73,65 @@ export default {
   },
 };
 
+async function analyseWithOpenAI(request, env, corsHeaders) {
+  if (!env.OPENAI_API_KEY) {
+    return json({ error: "The Worker is missing its OPENAI_API_KEY secret." }, 500, corsHeaders);
+  }
+
+  try {
+    const rawBody = await request.text();
+    if (rawBody.length > MAX_ANALYSIS_BODY_LENGTH) {
+      return json({ error: "The CV and job description are too large for the Worker analysis route." }, 413, corsHeaders);
+    }
+
+    const body = JSON.parse(rawBody);
+    validateOpenAIBody(body);
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+
+    const payload = await response.text();
+    return new Response(payload, {
+      status: response.status,
+      headers: {
+        ...corsHeaders,
+        "content-type": response.headers.get("content-type") || "application/json; charset=utf-8",
+      },
+    });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "OpenAI analysis failed." }, 400, corsHeaders);
+  }
+}
+
 function buildCorsHeaders(origin) {
   const allowedOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "https://steverowley.github.io";
   return {
     "access-control-allow-origin": allowedOrigin,
-    "access-control-allow-methods": "POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type",
     "access-control-max-age": "86400",
     vary: "Origin",
   };
+}
+
+function validateOpenAIBody(body) {
+  if (!body || typeof body !== "object") {
+    throw new Error("Missing analysis request body.");
+  }
+
+  if (typeof body.model !== "string" || !body.model.trim()) {
+    throw new Error("Missing OpenAI model.");
+  }
+
+  if (!Array.isArray(body.input)) {
+    throw new Error("Missing OpenAI input.");
+  }
 }
 
 function validateTargetUrl(value) {
