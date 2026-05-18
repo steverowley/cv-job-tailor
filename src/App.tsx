@@ -227,16 +227,22 @@ export function App() {
               />
             </label>
             {showJobFallback || jobText || !jobUrl.trim() ? (
-              <label className={jobUrl.trim() && !showJobFallback && !jobText ? "fallback-muted" : ""}>
-                Paste fallback
-                <textarea
-                  value={jobText}
-                  onChange={(event) => setJobText(event.target.value)}
-                  placeholder="Paste the job description here if the website blocks browser access."
-                />
-              </label>
+              <section className={`fallback-section ${showJobFallback || !jobUrl.trim() ? "" : "fallback-muted"}`}>
+                <h3>Fallback</h3>
+                <label>
+                  Paste job description
+                  <textarea
+                    value={jobText}
+                    onChange={(event) => setJobText(event.target.value)}
+                    placeholder="Paste the job description here if the website blocks browser access."
+                  />
+                </label>
+              </section>
             ) : (
-              <p className="hint">Paste fallback will appear if the URL cannot be read.</p>
+              <section className="fallback-section fallback-muted">
+                <h3>Fallback</h3>
+                <p className="hint">Paste fallback will appear if the URL cannot be read.</p>
+              </section>
             )}
           </Panel>
 
@@ -282,18 +288,6 @@ export function App() {
               Generate brand
             </button>
             <p className="hint">{brandMessage}</p>
-            {showBrandFallback || employerBrandSource ? (
-              <label>
-                Paste website text, HTML, or brand notes
-                <textarea
-                  value={employerBrandSource}
-                  onChange={(event) => setEmployerBrandSource(event.target.value)}
-                  placeholder="Optional fallback: paste the employer homepage text, page source, logo URL, or colours such as #123456."
-                />
-              </label>
-            ) : (
-              <p className="hint">Manual brand fallback will appear if the website cannot be read.</p>
-            )}
             <div className="brand-preview">
               <div className="brand-swatch" style={{ background: brand.primaryColor }} />
               <div>
@@ -301,42 +295,60 @@ export function App() {
                 <span>{brand.logoUrl ? "Logo found" : "No logo detected yet"}</span>
               </div>
             </div>
-            <div className={`brand-row ${showBrandFallback || brand.logoUrl ? "" : "fallback-muted"}`}>
-              <label>
-                Employer name
-                <input
-                  value={brand.companyName}
-                  onChange={(event) => setBrand({ ...brand, companyName: event.target.value })}
-                />
-              </label>
-              <label>
-                Logo URL
-                <input
-                  value={brand.logoUrl || ""}
-                  onChange={(event) => setBrand({ ...brand, logoUrl: event.target.value })}
-                  placeholder="Optional"
-                />
-              </label>
-            </div>
-            <p className="hint">Manual overrides are available if the website blocks automatic brand reading.</p>
-            <div className={`swatches ${showBrandFallback ? "" : "fallback-muted"}`}>
-              <label>
-                Primary
-                <input
-                  type="color"
-                  value={brand.primaryColor}
-                  onChange={(event) => setBrand({ ...brand, primaryColor: event.target.value })}
-                />
-              </label>
-              <label>
-                Accent
-                <input
-                  type="color"
-                  value={brand.accentColor}
-                  onChange={(event) => setBrand({ ...brand, accentColor: event.target.value })}
-                />
-              </label>
-            </div>
+            <section className={`fallback-section ${showBrandFallback || employerBrandSource ? "" : "fallback-muted"}`}>
+              <h3>Manual brand fallback</h3>
+              {showBrandFallback || employerBrandSource ? (
+                <label>
+                  Paste website text, HTML, or brand notes
+                  <textarea
+                    value={employerBrandSource}
+                    onChange={(event) => setEmployerBrandSource(event.target.value)}
+                    placeholder="Optional fallback: paste the employer homepage text, page source, logo URL, or colours such as #123456."
+                  />
+                </label>
+              ) : (
+                <p className="hint">Manual brand controls will become active if the website cannot be read.</p>
+              )}
+              <div className="brand-row">
+                <label>
+                  Employer name
+                  <input
+                    value={brand.companyName}
+                    disabled={!showBrandFallback && !employerBrandSource}
+                    onChange={(event) => setBrand({ ...brand, companyName: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Logo URL
+                  <input
+                    value={brand.logoUrl || ""}
+                    disabled={!showBrandFallback && !employerBrandSource}
+                    onChange={(event) => setBrand({ ...brand, logoUrl: event.target.value })}
+                    placeholder="Optional"
+                  />
+                </label>
+              </div>
+              <div className="swatches">
+                <label>
+                  Primary
+                  <input
+                    type="color"
+                    value={brand.primaryColor}
+                    disabled={!showBrandFallback && !employerBrandSource}
+                    onChange={(event) => setBrand({ ...brand, primaryColor: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Accent
+                  <input
+                    type="color"
+                    value={brand.accentColor}
+                    disabled={!showBrandFallback && !employerBrandSource}
+                    onChange={(event) => setBrand({ ...brand, accentColor: event.target.value })}
+                  />
+                </label>
+              </div>
+            </section>
           </Panel>
 
           <button className="primary-action" disabled={!canAnalyse || status === "analysing"} onClick={runAnalysis}>
@@ -583,6 +595,7 @@ function CvPreview({
                 ))}
               </div>
             </div>
+
           </>
         ) : (
           <p className="preview-placeholder">Your branded CV output will be rendered here after analysis.</p>
