@@ -7,6 +7,16 @@ export interface JobReadResult {
   brand: BrandSettings;
   source: "url" | "pasted";
   warning?: string;
+  diagnostics?: ReadDiagnostic[];
+}
+
+export interface ReadDiagnostic {
+  stage: "worker" | "browser" | "parser";
+  ok: boolean;
+  message: string;
+  status?: number;
+  url?: string;
+  detail?: string;
 }
 
 const DEFAULT_BRAND: BrandSettings = {
@@ -21,6 +31,7 @@ export class BrandReadError extends Error {
   constructor(
     message: string,
     readonly fallbackBrand: BrandSettings,
+    readonly diagnostics: ReadDiagnostic[] = [],
   ) {
     super(message);
     this.name = "BrandReadError";
@@ -37,10 +48,20 @@ export async function readJobDescription(
 
   if (trimmedUrl) {
     try {
-      const html = await readPageHtml(trimmedUrl, workerUrl);
+      const read = await readPageHtml(trimmedUrl, workerUrl);
+      const html = read.html;
       const parsed = parseHtmlPage(html, trimmedUrl);
       if (parsed.text.length < 300) {
-        throw new Error("The page did not expose enough readable job text.");
+        throw new ReadPageError("The page did not expose enough readable job text.", [
+          ...read.diagnostics,
+          {
+            stage: "parser",
+            ok: false,
+            message: "The page was fetched, but very little useful text was found.",
+            detail:
+              "This often happens when the site renders the job with JavaScript after load, or hides the content behind consent, login, or anti-bot checks.",
+          },
+        ]);
       }
 
       return {
@@ -49,12 +70,13 @@ export async function readJobDescription(
         companyName: parsed.companyName,
         brand: parsed.brand,
         source: "url",
+        diagnostics: read.diagnostics,
       };
     } catch (error) {
       if (!trimmedText) {
-        throw new Error(
-          `The job page could not be read from GitHub Pages. Paste the job description instead. ${formatError(error)}`,
-        );
+        throw Object.assign(new Error(`The job page could not be read. ${formatError(error)}`), {
+          diagnostics: getDiagnostics(error),
+        });
       }
 
       return {
@@ -63,6 +85,7 @@ export async function readJobDescription(
         source: "pasted",
         warning:
           "The job page could not be read automatically, so the pasted job description was used.",
+        diagnostics: getDiagnostics(error),
       };
     }
   }
@@ -95,38 +118,91 @@ export async function readEmployerBrand(
   }
 
   try {
-    const html = await readPageHtml(trimmedUrl, workerUrl);
+    const read = await readPageHtml(trimmedUrl, workerUrl);
+    const html = read.html;
     return parseHtmlPage(html, trimmedUrl).brand;
   } catch (error) {
     const fallback = buildFallbackBrand(trimmedUrl);
     throw new BrandReadError(
-      `The employer website could not be read from GitHub Pages. ${formatError(error)} You can still use the generated company name and adjust the colours manually.`,
+      `The employer website could not be read. ${formatError(error)} You can still use the generated company name and adjust the colours manually.`,
       fallback,
+      getDiagnostics(error),
     );
   }
 }
 
-async function readPageHtml(pageUrl: string, workerUrl: string): Promise<string> {
+class ReadPageError extends Error {
+  constructor(
+    message: string,
+    readonly diagnostics: ReadDiagnostic[],
+  ) {
+    super(message);
+    this.name = "ReadPageError";
+  }
+}
+
+async function readPageHtml(pageUrl: string, workerUrl: string): Promise<{ html: string; diagnostics: ReadDiagnostic[] }> {
   const trimmedWorkerUrl = workerUrl.trim();
+  const diagnostics: ReadDiagnostic[] = [];
+
   if (trimmedWorkerUrl) {
     try {
-      return await readViaWorker(pageUrl, trimmedWorkerUrl);
+      const read = await readViaWorker(pageUrl, trimmedWorkerUrl);
+      return {
+        html: read.html,
+        diagnostics: [
+          {
+            stage: "worker",
+            ok: true,
+            message: "Cloudflare Worker returned readable HTML.",
+            url: read.finalUrl || pageUrl,
+            detail: [read.contentType, read.truncated ? "Response was truncated for safety." : ""].filter(Boolean).join(" "),
+          },
+        ],
+      };
     } catch (workerError) {
+      diagnostics.push(toDiagnostic("worker", workerError, trimmedWorkerUrl));
       try {
-        return await readDirectly(pageUrl);
+        const html = await readDirectly(pageUrl);
+        diagnostics.push({
+          stage: "browser",
+          ok: true,
+          message: "Browser read worked after the Worker failed.",
+          url: pageUrl,
+        });
+        return { html, diagnostics };
       } catch (directError) {
-        throw new Error(
-          `Worker read failed: ${formatError(workerError)} Browser read failed: ${formatError(directError)}`,
-        );
+        diagnostics.push(toDiagnostic("browser", directError, pageUrl));
+        throw new ReadPageError("Both the Worker and browser reads failed.", diagnostics);
       }
     }
   }
 
-  return readDirectly(pageUrl);
+  try {
+    const html = await readDirectly(pageUrl);
+    return {
+      html,
+      diagnostics: [
+        {
+          stage: "browser",
+          ok: true,
+          message: "Browser read worked. The site allows GitHub Pages to fetch it directly.",
+          url: pageUrl,
+        },
+      ],
+    };
+  } catch (directError) {
+    diagnostics.push(toDiagnostic("browser", directError, pageUrl));
+    throw new ReadPageError("Browser read failed and no Worker URL is configured.", diagnostics);
+  }
 }
 
-async function readViaWorker(pageUrl: string, workerUrl: string): Promise<string> {
-  const response = await fetch(`${workerUrl.replace(/\/+$/, "")}/read`, {
+async function readViaWorker(
+  pageUrl: string,
+  workerUrl: string,
+): Promise<{ html: string; finalUrl?: string; contentType?: string; truncated?: boolean }> {
+  const endpoint = `${workerUrl.replace(/\/+$/, "")}/read`;
+  const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -135,25 +211,106 @@ async function readViaWorker(pageUrl: string, workerUrl: string): Promise<string
   });
 
   if (!response.ok) {
-    const details = await response.text().catch(() => "");
-    throw new Error(`The Worker responded with ${response.status}. ${details}`);
+    const details = await readErrorBody(response);
+    throw Object.assign(new Error(explainWorkerStatus(response.status, details)), {
+      status: response.status,
+      url: endpoint,
+      detail: details,
+    });
   }
 
-  const payload = (await response.json()) as { html?: string };
+  const payload = (await response.json()) as {
+    html?: string;
+    finalUrl?: string;
+    contentType?: string;
+    truncated?: boolean;
+  };
   if (!payload.html) {
     throw new Error("The Worker did not return page HTML.");
   }
 
-  return payload.html;
+  return {
+    html: payload.html,
+    finalUrl: payload.finalUrl,
+    contentType: payload.contentType,
+    truncated: payload.truncated,
+  };
 }
 
 async function readDirectly(pageUrl: string): Promise<string> {
   const response = await fetch(pageUrl);
   if (!response.ok) {
-    throw new Error(`The page responded with ${response.status}.`);
+    throw Object.assign(new Error(explainBrowserStatus(response.status)), {
+      status: response.status,
+      url: pageUrl,
+    });
   }
 
   return response.text();
+}
+
+function getDiagnostics(error: unknown): ReadDiagnostic[] {
+  return error instanceof ReadPageError ? error.diagnostics : [];
+}
+
+function toDiagnostic(stage: ReadDiagnostic["stage"], error: unknown, fallbackUrl: string): ReadDiagnostic {
+  const status = typeof (error as { status?: unknown })?.status === "number" ? (error as { status: number }).status : undefined;
+  const url = typeof (error as { url?: unknown })?.url === "string" ? (error as { url: string }).url : fallbackUrl;
+  const detail = typeof (error as { detail?: unknown })?.detail === "string" ? (error as { detail: string }).detail : undefined;
+
+  return {
+    stage,
+    ok: false,
+    status,
+    url,
+    message: formatError(error),
+    detail: detail || explainNetworkFailure(stage, error),
+  };
+}
+
+async function readErrorBody(response: Response): Promise<string> {
+  const text = await response.text().catch(() => "");
+  if (!text) {
+    return "";
+  }
+
+  try {
+    const payload = JSON.parse(text) as { error?: string };
+    return payload.error || text;
+  } catch {
+    return text;
+  }
+}
+
+function explainWorkerStatus(status: number, details: string): string {
+  if (status === 404) {
+    return "The Worker URL was reached, but /read was not found. Check that the deployed Worker is this repo's Worker.";
+  }
+
+  if (status === 415) {
+    return `The Worker reached the website, but it was not an HTML page. ${details}`;
+  }
+
+  if (status === 502) {
+    return `The Worker reached the website, but the website rejected or failed the request. ${details}`;
+  }
+
+  return `The Worker responded with ${status}. ${details}`;
+}
+
+function explainBrowserStatus(status: number): string {
+  return `The browser reached the page, but the website responded with ${status}.`;
+}
+
+function explainNetworkFailure(stage: ReadDiagnostic["stage"], error: unknown): string {
+  const message = formatError(error);
+  if (message.toLowerCase().includes("failed to fetch")) {
+    return stage === "worker"
+      ? "The app could not reach the Worker. Check the Worker URL, deployment status, and CORS settings."
+      : "The browser blocked the website read, most commonly because the website does not allow cross-origin reads from GitHub Pages.";
+  }
+
+  return "";
 }
 
 export function parseBrandSource(source: string, websiteUrl: string): BrandSettings {
