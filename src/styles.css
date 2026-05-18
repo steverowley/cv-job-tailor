@@ -72,7 +72,8 @@ h1 {
 }
 
 .privacy-panel,
-.status {
+.status,
+.config-summary {
   align-self: end;
   background: #fbf8f1;
   border: 1px solid #d8d0c2;
@@ -83,22 +84,34 @@ h1 {
 }
 
 .privacy-panel svg,
-.status svg {
+.status svg,
+.config-summary svg {
   color: #605747;
   flex: 0 0 auto;
   margin-top: 2px;
 }
 
-.privacy-panel strong {
+.privacy-panel strong,
+.config-summary strong {
   font-weight: 600;
 }
 
 .privacy-panel span,
+.config-summary span,
 .hint {
   color: #746b5f;
   display: block;
   font-size: 0.9rem;
   line-height: 1.55;
+}
+
+.config-summary {
+  align-items: flex-start;
+  margin-top: 12px;
+}
+
+.config-summary > div {
+  flex: 1;
 }
 
 .fallback-muted {
@@ -270,7 +283,8 @@ textarea {
 
 .primary-action,
 .secondary-action,
-.brand-action {
+.brand-action,
+.text-action {
   align-items: center;
   border-radius: 3px;
   cursor: pointer;
@@ -297,6 +311,18 @@ textarea {
   background: transparent;
   border: 1px solid #8f8371;
   color: #3d382f;
+}
+
+.text-action {
+  background: transparent;
+  border: 0;
+  color: #6a614f;
+  font-size: 0.72rem;
+  justify-content: flex-start;
+  min-height: 28px;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .brand-action {
