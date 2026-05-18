@@ -385,9 +385,20 @@ export function App() {
               <div className="brand-swatch" style={{ background: brand.primaryColor }} />
               <div>
                 <strong>{brand.companyName}</strong>
-                <span>{brand.logoUrl ? "Logo found" : "No logo detected yet"}</span>
+                <span>
+                  {[brand.logoUrl ? "Logo found" : "No logo detected yet", brand.layoutStyle || "editorial"]
+                    .filter(Boolean)
+                    .join(" / ")}
+                </span>
               </div>
             </div>
+            {brand.palette?.length ? (
+              <div className="palette-strip" aria-label="Extracted brand palette">
+                {brand.palette.slice(0, 5).map((color) => (
+                  <span key={color} style={{ background: color }} title={color} />
+                ))}
+              </div>
+            ) : null}
             <section className={`fallback-section ${showBrandFallback || employerBrandSource ? "" : "fallback-muted"}`}>
               <h3>Manual brand fallback</h3>
               {showBrandFallback || employerBrandSource ? (
@@ -616,11 +627,14 @@ function CvPreview({
     <section className="preview-shell">
       <div
         ref={refElement}
-        className="cv-page cv-document"
+        className={`cv-page cv-document cv-${brand.layoutStyle || "editorial"}`}
         style={
           {
             "--brand-primary": brand.primaryColor,
             "--brand-accent": brand.accentColor,
+            "--brand-bg": brand.backgroundColor || "#fffefb",
+            "--brand-text": brand.textColor || "#25221e",
+            "--brand-font": `"${brand.fontFamily || "Georgia"}", Georgia, serif`,
           } as React.CSSProperties
         }
       >
