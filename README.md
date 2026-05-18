@@ -38,8 +38,6 @@ https://cv-job-tailor-reader.your-account.workers.dev
    - `VITE_CLOUDFLARE_WORKER_URL`: your Worker URL.
 7. Re-run the GitHub Pages workflow, or push a small change to trigger it.
 
-You can also paste the Worker URL into the app's "Cloudflare Worker URL" field for immediate testing. The app keeps it in browser session storage.
-
 The Worker exposes only `POST /read`, accepts `{ "url": "https://example.com" }`, returns public HTML, and allows browser calls from `https://steverowley.github.io` plus local development origins.
 
 ## Local development
