@@ -15,6 +15,16 @@ const DEFAULT_BRAND: BrandSettings = {
   accentColor: "#d3a84f",
 };
 
+export class BrandReadError extends Error {
+  constructor(
+    message: string,
+    readonly fallbackBrand: BrandSettings,
+  ) {
+    super(message);
+    this.name = "BrandReadError";
+  }
+}
+
 export async function readJobDescription(
   jobUrl: string,
   pastedText: string,
@@ -70,6 +80,29 @@ export async function readJobDescription(
   };
 }
 
+export async function readEmployerBrand(websiteUrl: string): Promise<BrandSettings> {
+  const trimmedUrl = websiteUrl.trim();
+  if (!trimmedUrl) {
+    throw new Error("Add the employer website URL first.");
+  }
+
+  try {
+    const response = await fetch(trimmedUrl);
+    if (!response.ok) {
+      throw new Error(`The website responded with ${response.status}.`);
+    }
+
+    const html = await response.text();
+    return parseHtmlPage(html, trimmedUrl).brand;
+  } catch (error) {
+    const fallback = buildFallbackBrand(trimmedUrl);
+    throw new BrandReadError(
+      `The employer website could not be read from GitHub Pages. ${formatError(error)} You can still use the generated company name and adjust the colours manually.`,
+      fallback,
+    );
+  }
+}
+
 export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult, "source"> {
   const document = new DOMParser().parseFromString(html, "text/html");
   const title = document.querySelector("title")?.textContent?.trim();
@@ -81,7 +114,7 @@ export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult
   document.querySelectorAll("script, style, noscript, svg").forEach((node) => node.remove());
   const text = document.body?.innerText || document.documentElement.textContent || "";
   const logoUrl = findLogoUrl(document, pageUrl);
-  const themeColor = getMeta(document, "theme-color") || "#1b4d3e";
+  const themeColor = findBrandColor(document, DEFAULT_BRAND.primaryColor);
 
   return {
     text: text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim(),
@@ -90,8 +123,8 @@ export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult
     brand: {
       companyName,
       logoUrl,
-      primaryColor: normalizeColor(themeColor, DEFAULT_BRAND.primaryColor),
-      accentColor: DEFAULT_BRAND.accentColor,
+      primaryColor: themeColor,
+      accentColor: deriveAccentColor(themeColor),
     },
   };
 }
@@ -142,6 +175,42 @@ function getHostName(url: string): string {
 function normalizeColor(value: string, fallback: string): string {
   const trimmed = value.trim();
   return /^#[0-9a-f]{3,8}$/i.test(trimmed) ? trimmed : fallback;
+}
+
+function findBrandColor(document: Document, fallback: string): string {
+  const metaColor = getMeta(document, "theme-color") || getMeta(document, "msapplication-TileColor");
+  if (metaColor) {
+    return normalizeColor(metaColor, fallback);
+  }
+
+  const inlineColor = Array.from(document.querySelectorAll<HTMLElement>("[style]"))
+    .map((element) => element.style.backgroundColor || element.style.color)
+    .map(rgbToHex)
+    .find(Boolean);
+
+  return inlineColor || fallback;
+}
+
+function rgbToHex(value: string): string | undefined {
+  const match = value.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/i);
+  if (!match) {
+    return normalizeColor(value, "");
+  }
+
+  const [, red, green, blue] = match;
+  return `#${[red, green, blue]
+    .map((channel) => Number(channel).toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+function deriveAccentColor(primary: string): string {
+  const normalized = normalizeColor(primary, DEFAULT_BRAND.primaryColor).replace("#", "").slice(0, 6);
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
+
+  return brightness > 150 ? "#1f3a34" : "#f0c75e";
 }
 
 function formatError(error: unknown): string {
