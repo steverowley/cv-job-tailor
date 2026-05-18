@@ -404,7 +404,6 @@ function CvPreview({
   refElement: React.RefObject<HTMLDivElement>;
 }) {
   const cv = analysis?.tailoredCv.fullCv;
-  const fallback = analysis?.tailoredCv;
 
   return (
     <section className="preview-shell">
@@ -509,17 +508,6 @@ function CvPreview({
                 ))}
               </div>
             </div>
-
-            {fallback?.cautions.length ? (
-              <footer className="cv-note">
-                <h3>Review notes</h3>
-                <ul>
-                  {fallback.cautions.map((caution) => (
-                    <li key={caution}>{caution}</li>
-                  ))}
-                </ul>
-              </footer>
-            ) : null}
           </>
         ) : (
           <p className="preview-placeholder">Your branded CV output will be rendered here after analysis.</p>
