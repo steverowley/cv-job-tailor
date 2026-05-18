@@ -116,6 +116,32 @@ h1 {
   gap: 18px;
 }
 
+.output-tabs {
+  align-items: center;
+  border: 1px solid #d8d0c2;
+  border-radius: 3px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+}
+
+.output-tabs button {
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  color: #6a614f;
+  cursor: pointer;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+  min-height: 34px;
+  text-transform: uppercase;
+}
+
+.output-tabs button.active {
+  background: #2f352f;
+  color: #fffaf0;
+}
+
 .panel,
 .preview-shell {
   background: transparent;
