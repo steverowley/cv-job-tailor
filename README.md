@@ -42,7 +42,7 @@ https://cv-job-tailor-reader.your-account.workers.dev
 
 You can also paste the Worker URL into the app's "Cloudflare Worker URL" field for immediate testing. The app keeps it in browser session storage.
 
-The Worker exposes `GET /status` for checking whether the OpenAI secret is configured, `POST /read` for website reading, and `POST /analyse` for OpenAI analysis when `OPENAI_API_KEY` is configured. It allows browser calls from `https://steverowley.github.io` plus local development origins.
+The Worker exposes `POST /read` for website reading and `POST /analyse` for OpenAI analysis when `OPENAI_API_KEY` is configured. It allows browser calls from `https://steverowley.github.io` plus local development origins.
 
 ## Local development
 
@@ -58,3 +58,13 @@ npm run build
 ```
 
 The Vite base path is configured for GitHub Pages at `/cv-job-tailor/`.
+
+## Worker diagnostics
+
+Check whether the deployed Worker is reachable and has the OpenAI secret:
+
+```bash
+npm run check:worker -- https://cv-job-tailor-reader.your-account.workers.dev
+```
+
+Expected passing output includes `PASS: Worker is reachable and OPENAI_API_KEY is configured.`
