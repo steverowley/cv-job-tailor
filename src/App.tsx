@@ -410,7 +410,7 @@ function CvPreview({
     <section className="preview-shell">
       <div
         ref={refElement}
-        className="cv-page"
+        className="cv-page cv-document"
         style={
           {
             "--brand-primary": brand.primaryColor,
@@ -418,86 +418,107 @@ function CvPreview({
           } as React.CSSProperties
         }
       >
-        <header className="cv-header">
-          <div>
-            <span className="company-name">{analysis?.employerName || brand.companyName}</span>
-            <h2>{cv?.name || "Tailored CV preview"}</h2>
-            {cv?.contactLines.length ? <p className="cv-contact">{cv.contactLines.join(" | ")}</p> : null}
-          </div>
-          {brand.logoUrl ? <img src={brand.logoUrl} alt={`${brand.companyName} logo`} /> : null}
-        </header>
-
         {cv ? (
           <>
-            <section>
-              <h3>Profile</h3>
-              <p className="cv-headline">{cv.headline}</p>
-              <p>{cv.profile}</p>
-            </section>
-            {cv.skills.length ? <section>
-              <h3>Relevant skills</h3>
-              <div className="cv-skills">
-                {cv.skills.map((skill) => (
-                  <span key={skill}>{skill}</span>
-                ))}
+            <header className="cv-header">
+              <div className="cv-brand-line">
+                <span>{analysis?.employerName || brand.companyName}</span>
+                <span>Tailored application CV</span>
               </div>
-            </section> : null}
-            {cv.experience.length ? <section>
-              <h3>Experience</h3>
-              <div className="cv-experience-list">
-                {cv.experience.map((item) => (
-                  <article className="cv-experience" key={`${item.role}-${item.organisation}-${item.dates}`}>
-                    <div className="cv-role-row">
-                      <strong>{item.role}</strong>
-                      <span>{item.dates}</span>
+              <div className="cv-hero">
+                <div>
+                  <h2>{cv.name}</h2>
+                  <p className="cv-headline">{cv.headline}</p>
+                </div>
+                {brand.logoUrl ? <img src={brand.logoUrl} alt={`${brand.companyName} logo`} /> : null}
+              </div>
+              {cv.contactLines.length ? <p className="cv-contact">{cv.contactLines.join(" / ")}</p> : null}
+            </header>
+
+            <div className="cv-layout">
+              <aside className="cv-sidebar">
+                {cv.skills.length ? (
+                  <section>
+                    <h3>Skills</h3>
+                    <div className="cv-skills">
+                      {cv.skills.map((skill) => (
+                        <span key={skill}>{skill}</span>
+                      ))}
                     </div>
-                    <p className="cv-organisation">
-                      {[item.organisation, item.location].filter(Boolean).join(" | ")}
-                    </p>
+                  </section>
+                ) : null}
+                {cv.education.length ? (
+                  <section>
+                    <h3>Education</h3>
                     <ul>
-                      {item.bullets.map((bullet) => (
-                        <li key={bullet}>{bullet}</li>
+                      {cv.education.map((item) => (
+                        <li key={item}>{item}</li>
                       ))}
                     </ul>
-                  </article>
+                  </section>
+                ) : null}
+                {cv.certifications.length ? (
+                  <section>
+                    <h3>Certifications</h3>
+                    <ul>
+                      {cv.certifications.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+              </aside>
+
+              <div className="cv-main">
+                <section className="cv-profile">
+                  <h3>Profile</h3>
+                  <p>{cv.profile}</p>
+                </section>
+                {cv.experience.length ? (
+                  <section>
+                    <h3>Experience</h3>
+                    <div className="cv-experience-list">
+                      {cv.experience.map((item) => (
+                        <article className="cv-experience" key={`${item.role}-${item.organisation}-${item.dates}`}>
+                          <div className="cv-role-row">
+                            <strong>{item.role}</strong>
+                            <span>{item.dates}</span>
+                          </div>
+                          <p className="cv-organisation">
+                            {[item.organisation, item.location].filter(Boolean).join(" / ")}
+                          </p>
+                          <ul>
+                            {item.bullets.map((bullet) => (
+                              <li key={bullet}>{bullet}</li>
+                            ))}
+                          </ul>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+                {cv.additionalSections.map((section) => (
+                  <section key={section.title}>
+                    <h3>{section.title}</h3>
+                    <ul>
+                      {section.items.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </section>
                 ))}
               </div>
-            </section> : null}
-            {cv.education.length ? <section>
-              <h3>Education</h3>
-              <ul>
-                {cv.education.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </section> : null}
-            {cv.certifications.length ? <section>
-              <h3>Certifications</h3>
-              <ul>
-                {cv.certifications.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            </section> : null}
-            {cv.additionalSections.map((section) => (
-              <section key={section.title}>
-                <h3>{section.title}</h3>
-                <ul>
-                  {section.items.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </section>
-            ))}
+            </div>
+
             {fallback?.cautions.length ? (
-              <section className="cv-note">
+              <footer className="cv-note">
                 <h3>Review notes</h3>
                 <ul>
                   {fallback.cautions.map((caution) => (
                     <li key={caution}>{caution}</li>
                   ))}
                 </ul>
-              </section>
+              </footer>
             ) : null}
           </>
         ) : (
