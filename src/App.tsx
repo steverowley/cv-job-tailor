@@ -29,6 +29,7 @@ export function App() {
   const [jobUrl, setJobUrl] = useState("");
   const [jobText, setJobText] = useState("");
   const [employerWebsiteUrl, setEmployerWebsiteUrl] = useState("");
+  const [employerBrandSource, setEmployerBrandSource] = useState("");
   const [cvFileName, setCvFileName] = useState("");
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
@@ -105,10 +106,14 @@ export function App() {
   async function generateBrand() {
     try {
       setStatus("reading");
-      setBrandMessage("Reading public brand signals from the employer website...");
-      const generatedBrand = await readEmployerBrand(employerWebsiteUrl);
+      setBrandMessage(
+        employerBrandSource.trim()
+          ? "Generating brand from the pasted employer website details..."
+          : "Reading public brand signals from the employer website...",
+      );
+      const generatedBrand = await readEmployerBrand(employerWebsiteUrl, employerBrandSource);
       setBrand(generatedBrand);
-      setBrandMessage("Brand generated from the employer website. You can still fine-tune it before export.");
+      setBrandMessage("Brand generated. You can still fine-tune it before export.");
       setStatus("idle");
     } catch (error) {
       if (error instanceof BrandReadError) {
@@ -224,13 +229,21 @@ export function App() {
             </label>
             <button
               className="brand-action"
-              disabled={!employerWebsiteUrl.trim() || status === "reading"}
+              disabled={(!employerWebsiteUrl.trim() && !employerBrandSource.trim()) || status === "reading"}
               onClick={generateBrand}
             >
               <Palette aria-hidden="true" />
-              Generate brand from website
+              Generate brand
             </button>
             <p className="hint">{brandMessage}</p>
+            <label>
+              Paste website text, HTML, or brand notes
+              <textarea
+                value={employerBrandSource}
+                onChange={(event) => setEmployerBrandSource(event.target.value)}
+                placeholder="Optional fallback: paste the employer homepage text, page source, logo URL, or colours such as #123456."
+              />
+            </label>
             <div className="brand-preview">
               <div className="brand-swatch" style={{ background: brand.primaryColor }} />
               <div>
