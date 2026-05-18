@@ -403,7 +403,8 @@ function CvPreview({
   brand: BrandSettings;
   refElement: React.RefObject<HTMLDivElement>;
 }) {
-  const cv = analysis?.tailoredCv;
+  const cv = analysis?.tailoredCv.fullCv;
+  const fallback = analysis?.tailoredCv;
 
   return (
     <section className="preview-shell">
@@ -420,7 +421,8 @@ function CvPreview({
         <header className="cv-header">
           <div>
             <span className="company-name">{analysis?.employerName || brand.companyName}</span>
-            <h2>{cv?.headline || "Tailored CV preview"}</h2>
+            <h2>{cv?.name || "Tailored CV preview"}</h2>
+            {cv?.contactLines.length ? <p className="cv-contact">{cv.contactLines.join(" | ")}</p> : null}
           </div>
           {brand.logoUrl ? <img src={brand.logoUrl} alt={`${brand.companyName} logo`} /> : null}
         </header>
@@ -429,29 +431,69 @@ function CvPreview({
           <>
             <section>
               <h3>Profile</h3>
-              <p>{cv.summary}</p>
+              <p className="cv-headline">{cv.headline}</p>
+              <p>{cv.profile}</p>
             </section>
-            <section>
+            {cv.skills.length ? <section>
               <h3>Relevant skills</h3>
               <div className="cv-skills">
-                {cv.coreSkills.map((skill) => (
+                {cv.skills.map((skill) => (
                   <span key={skill}>{skill}</span>
                 ))}
               </div>
-            </section>
-            <section>
-              <h3>Selected evidence</h3>
+            </section> : null}
+            {cv.experience.length ? <section>
+              <h3>Experience</h3>
+              <div className="cv-experience-list">
+                {cv.experience.map((item) => (
+                  <article className="cv-experience" key={`${item.role}-${item.organisation}-${item.dates}`}>
+                    <div className="cv-role-row">
+                      <strong>{item.role}</strong>
+                      <span>{item.dates}</span>
+                    </div>
+                    <p className="cv-organisation">
+                      {[item.organisation, item.location].filter(Boolean).join(" | ")}
+                    </p>
+                    <ul>
+                      {item.bullets.map((bullet) => (
+                        <li key={bullet}>{bullet}</li>
+                      ))}
+                    </ul>
+                  </article>
+                ))}
+              </div>
+            </section> : null}
+            {cv.education.length ? <section>
+              <h3>Education</h3>
               <ul>
-                {cv.experienceBullets.map((bullet) => (
-                  <li key={bullet}>{bullet}</li>
+                {cv.education.map((item) => (
+                  <li key={item}>{item}</li>
                 ))}
               </ul>
-            </section>
-            {cv.cautions.length ? (
+            </section> : null}
+            {cv.certifications.length ? <section>
+              <h3>Certifications</h3>
+              <ul>
+                {cv.certifications.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            </section> : null}
+            {cv.additionalSections.map((section) => (
+              <section key={section.title}>
+                <h3>{section.title}</h3>
+                <ul>
+                  {section.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+            {fallback?.cautions.length ? (
               <section className="cv-note">
                 <h3>Review notes</h3>
                 <ul>
-                  {cv.cautions.map((caution) => (
+                  {fallback.cautions.map((caution) => (
                     <li key={caution}>{caution}</li>
                   ))}
                 </ul>
