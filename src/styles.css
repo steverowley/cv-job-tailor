@@ -432,6 +432,18 @@ button:disabled {
   margin-top: 8px;
 }
 
+.cv-contact,
+.cv-headline,
+.cv-organisation {
+  color: #746b5f;
+  margin: 8px 0 0;
+}
+
+.cv-headline {
+  color: var(--brand-primary, #40392f);
+  font-style: italic;
+}
+
 .cv-header img {
   border: 1px solid #d8d0c2;
   border-radius: 3px;
@@ -450,6 +462,28 @@ button:disabled {
 
 .cv-page section {
   margin-bottom: 24px;
+}
+
+.cv-experience-list {
+  display: grid;
+  gap: 18px;
+}
+
+.cv-role-row {
+  align-items: baseline;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.cv-role-row span {
+  color: #746b5f;
+  flex: 0 0 auto;
+  font-size: 0.9rem;
+}
+
+.cv-experience ul {
+  margin-top: 8px;
 }
 
 .cv-page p,
