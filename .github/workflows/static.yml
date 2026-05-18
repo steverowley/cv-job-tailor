@@ -28,6 +28,8 @@ jobs:
         run: npm install
       - name: Build
         run: npm run build
+        env:
+          VITE_CLOUDFLARE_WORKER_URL: ${{ vars.VITE_CLOUDFLARE_WORKER_URL }}
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
