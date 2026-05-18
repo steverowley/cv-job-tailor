@@ -101,6 +101,15 @@ h1 {
   line-height: 1.55;
 }
 
+.fallback-muted {
+  opacity: 0.48;
+}
+
+.fallback-muted input,
+.fallback-muted textarea {
+  background: #f3eee5;
+}
+
 .workspace-grid {
   align-items: start;
   display: grid;
@@ -325,6 +334,57 @@ button:disabled {
   color: #8f4339;
 }
 
+.diagnostics-box {
+  background: #fbf8f1;
+  border: 1px solid #d8d0c2;
+  border-radius: 3px;
+  padding: 14px;
+}
+
+.diagnostics-box strong {
+  color: #3a352f;
+}
+
+.diagnostics-box ul {
+  display: grid;
+  gap: 10px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+
+.diagnostics-box li {
+  border-left: 2px solid #aaa091;
+  padding-left: 12px;
+}
+
+.diagnostics-box li span {
+  color: #7a6f61;
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.diagnostics-box li p {
+  color: #50493f;
+  line-height: 1.5;
+  margin: 3px 0;
+}
+
+.diagnostics-box li small {
+  color: #746b5f;
+  display: block;
+  line-height: 1.45;
+}
+
+.diagnostic-ok {
+  border-left-color: #8aa083;
+}
+
+.diagnostic-fail {
+  border-left-color: #b98f82;
+}
+
 .empty-state {
   min-height: 154px;
 }
@@ -356,7 +416,7 @@ button:disabled {
 }
 
 .skill-required,
-.skill-tool {
+skill-tool {
   border-color: #b9c4b7;
 }
 
