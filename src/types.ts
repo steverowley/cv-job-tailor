@@ -17,9 +17,35 @@ export interface TailoredCv {
   summary: string;
   coreSkills: string[];
   experienceBullets: string[];
+  fullCv: FullCv;
   evidenceMatches: EvidenceMatch[];
   gaps: string[];
   cautions: string[];
+}
+
+export interface FullCvExperience {
+  role: string;
+  organisation: string;
+  dates: string;
+  location: string;
+  bullets: string[];
+}
+
+export interface FullCvSection {
+  title: string;
+  items: string[];
+}
+
+export interface FullCv {
+  name: string;
+  contactLines: string[];
+  headline: string;
+  profile: string;
+  skills: string[];
+  experience: FullCvExperience[];
+  education: string[];
+  certifications: string[];
+  additionalSections: FullCvSection[];
 }
 
 export interface AnalysisResult {
