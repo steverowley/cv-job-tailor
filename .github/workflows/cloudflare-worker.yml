@@ -19,8 +19,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Deploy Worker
+        run: npx wrangler deploy
       - name: Sync OpenAI secret
         if: ${{ env.OPENAI_API_KEY != '' }}
         run: echo "$OPENAI_API_KEY" | npx wrangler secret put OPENAI_API_KEY
-      - name: Deploy Worker
-        run: npx wrangler deploy
+      - name: Verify OpenAI secret
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        run: npx wrangler secret list | grep OPENAI_API_KEY
