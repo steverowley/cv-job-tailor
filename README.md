@@ -24,19 +24,21 @@ Employer websites can also block reads. If that happens, the app still derives a
 The Worker code is in `worker/index.js` and is configured by `wrangler.toml`.
 
 1. Create or log in to a Cloudflare account.
-2. In Cloudflare, create an API token with permission to deploy Workers.
-3. In GitHub, open this repo's settings, then add a repository secret:
+2. In Cloudflare, copy your Account ID from the account overview page.
+3. In Cloudflare, create an API token with permission to deploy Workers.
+4. In GitHub, open this repo's settings, then add repository secrets:
    - `CLOUDFLARE_API_TOKEN`: your Cloudflare API token.
-4. In GitHub Actions, run the `Deploy Cloudflare Worker` workflow.
-5. Copy the deployed Worker URL. It will look similar to:
+   - `CLOUDFLARE_ACCOUNT_ID`: your Cloudflare Account ID.
+5. In GitHub Actions, run the `Deploy Cloudflare Worker` workflow.
+6. Copy the deployed Worker URL. It will look similar to:
 
 ```text
 https://cv-job-tailor-reader.your-account.workers.dev
 ```
 
-6. Add that URL as a GitHub repository variable:
+7. Add that URL as a GitHub repository variable:
    - `VITE_CLOUDFLARE_WORKER_URL`: your Worker URL.
-7. Re-run the GitHub Pages workflow, or push a small change to trigger it.
+8. Re-run the GitHub Pages workflow, or push a small change to trigger it.
 
 The Worker exposes only `POST /read`, accepts `{ "url": "https://example.com" }`, returns public HTML, and allows browser calls from `https://steverowley.github.io` plus local development origins.
 
