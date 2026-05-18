@@ -39,6 +39,7 @@ export function App() {
   const [isEditingWorkerUrl, setIsEditingWorkerUrl] = useState(() => !DEFAULT_WORKER_URL);
   const [showPersonalKey, setShowPersonalKey] = useState(() => Boolean(sessionStorage.getItem("openai-api-key")));
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>("idle");
+  const [workerStatusDetail, setWorkerStatusDetail] = useState("");
   const [cvFileName, setCvFileName] = useState("");
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
@@ -63,6 +64,7 @@ export function App() {
   useEffect(() => {
     if (!workerUrl.trim()) {
       setWorkerStatus("idle");
+      setWorkerStatusDetail("");
       return;
     }
 
@@ -70,17 +72,26 @@ export function App() {
     async function checkWorker() {
       try {
         setWorkerStatus("checking");
-        const response = await fetch(`${workerUrl.replace(/\/+$/, "")}/status`, {
+        setWorkerStatusDetail("");
+        const endpoint = `${normalizeWorkerUrl(workerUrl)}/status`;
+        const response = await fetch(endpoint, {
           signal: controller.signal,
         });
-        const payload = (await response.json()) as { hasOpenAiKey?: boolean };
+        const rawText = await response.text();
+        const payload = rawText ? (JSON.parse(rawText) as { error?: string; hasOpenAiKey?: boolean }) : {};
         if (!response.ok) {
-          throw new Error("Worker status check failed.");
+          setWorkerStatusDetail(
+            `Status check reached ${endpoint}, but the Worker returned ${response.status}. ${payload.error || rawText}`,
+          );
+          setWorkerStatus("unreachable");
+          return;
         }
+        setWorkerStatusDetail(`Checked ${endpoint}.`);
         setWorkerStatus(payload.hasOpenAiKey ? "configured" : "missing-key");
       } catch (error) {
         if (!controller.signal.aborted) {
           setWorkerStatus("unreachable");
+          setWorkerStatusDetail(error instanceof Error ? error.message : "The Worker status check failed.");
         }
       }
     }
@@ -327,7 +338,7 @@ export function App() {
                 <BadgeCheck aria-hidden="true" />
                 <div>
                   <strong>Worker URL loaded</strong>
-                  <span>{formatWorkerStatus(workerStatus)}</span>
+                  <span>{formatWorkerStatus(workerStatus, workerStatusDetail)}</span>
                 </div>
                 <button className="text-action" type="button" onClick={() => setIsEditingWorkerUrl(true)}>
                   Change
@@ -349,7 +360,7 @@ export function App() {
                     Use deployed Worker URL
                   </button>
                 ) : null}
-                <p className="hint">{formatWorkerStatus(workerStatus)}</p>
+                <p className="hint">{formatWorkerStatus(workerStatus, workerStatusDetail)}</p>
               </>
             )}
             <label>
@@ -517,7 +528,18 @@ function Panel(props: { icon: React.ReactNode; title: string; children: React.Re
   );
 }
 
-function formatWorkerStatus(status: WorkerStatus): string {
+function normalizeWorkerUrl(value: string): string {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) {
+    throw new Error("No Worker URL is configured.");
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+function formatWorkerStatus(status: WorkerStatus, detail = ""): string {
   if (status === "checking") {
     return "Checking the configured Worker...";
   }
@@ -525,10 +547,10 @@ function formatWorkerStatus(status: WorkerStatus): string {
     return "Website reading and shared OpenAI analysis are ready.";
   }
   if (status === "missing-key") {
-    return "Website reading is ready, but the Worker is missing its OpenAI key secret.";
+    return `Website reading is ready, but the Worker is missing its OpenAI key secret. ${detail}`.trim();
   }
   if (status === "unreachable") {
-    return "The Worker could not be reached from this browser.";
+    return `The Worker could not be reached from this browser. ${detail}`.trim();
   }
   return "Optional website reader used when employer pages block GitHub Pages.";
 }
