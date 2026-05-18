@@ -203,7 +203,8 @@ textarea {
 }
 
 .primary-action,
-.secondary-action {
+.secondary-action,
+.brand-action {
   align-items: center;
   border: 0;
   border-radius: 8px;
@@ -224,6 +225,39 @@ textarea {
 .secondary-action {
   background: #d3a84f;
   color: #211804;
+}
+
+.brand-action {
+  background: #efe7db;
+  border: 1px solid #d5cbbd;
+  color: #1b4d3e;
+  margin-top: 12px;
+  width: 100%;
+}
+
+.brand-preview {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #ded6ca;
+  border-radius: 8px;
+  display: flex;
+  gap: 12px;
+  margin: 14px 0 4px;
+  padding: 12px;
+}
+
+.brand-preview span {
+  color: #69716c;
+  display: block;
+  font-size: 0.82rem;
+  margin-top: 2px;
+}
+
+.brand-swatch {
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  height: 42px;
+  width: 42px;
 }
 
 button:disabled {
