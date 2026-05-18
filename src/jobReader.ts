@@ -23,6 +23,11 @@ const DEFAULT_BRAND: BrandSettings = {
   companyName: "Target employer",
   primaryColor: "#1b4d3e",
   accentColor: "#d3a84f",
+  backgroundColor: "#fffdf8",
+  textColor: "#25221e",
+  fontFamily: "Georgia",
+  layoutStyle: "editorial",
+  palette: ["#1b4d3e", "#d3a84f", "#fffdf8"],
 };
 
 const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
@@ -332,6 +337,11 @@ export function parseBrandSource(source: string, websiteUrl: string): BrandSetti
     logoUrl: source.match(/https?:\/\/\S+\.(?:png|jpg|jpeg|svg|webp|ico)/i)?.[0],
     primaryColor: normalizeColor(colors[0] || "", DEFAULT_BRAND.primaryColor),
     accentColor: normalizeColor(colors[1] || "", deriveAccentColor(colors[0] || DEFAULT_BRAND.primaryColor)),
+    backgroundColor: normalizeColor(colors[2] || "", "#fffdf8"),
+    textColor: pickReadableText(colors[2] || "#fffdf8"),
+    fontFamily: findFontHint(source) || DEFAULT_BRAND.fontFamily,
+    layoutStyle: chooseLayoutStyle(colors[0] || DEFAULT_BRAND.primaryColor, source),
+    palette: colors.slice(0, 6),
   };
 }
 
@@ -343,10 +353,17 @@ export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult
     getMeta(document, "application-name") ||
     getHostName(pageUrl);
 
+  const styleText = Array.from(document.querySelectorAll("style"))
+    .map((node) => node.textContent || "")
+    .join("\n");
+  const logoUrl = findLogoUrl(document, pageUrl);
+  const palette = findBrandPalette(document, styleText);
+  const themeColor = palette[0] || findBrandColor(document, DEFAULT_BRAND.primaryColor);
+  const backgroundColor = palette.find((color) => colorBrightness(color) > 210) || "#fffdf8";
+  const fontFamily = findFontHint(styleText) || findInlineFont(document) || DEFAULT_BRAND.fontFamily;
+
   document.querySelectorAll("script, style, noscript, svg").forEach((node) => node.remove());
   const text = document.body?.innerText || document.documentElement.textContent || "";
-  const logoUrl = findLogoUrl(document, pageUrl);
-  const themeColor = findBrandColor(document, DEFAULT_BRAND.primaryColor);
 
   return {
     text: text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim(),
@@ -356,7 +373,12 @@ export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult
       companyName,
       logoUrl,
       primaryColor: themeColor,
-      accentColor: deriveAccentColor(themeColor),
+      accentColor: palette[1] || deriveAccentColor(themeColor),
+      backgroundColor,
+      textColor: pickReadableText(backgroundColor),
+      fontFamily,
+      layoutStyle: chooseLayoutStyle(themeColor, `${styleText}\n${text.slice(0, 3000)}`),
+      palette: palette.length ? palette : [themeColor, deriveAccentColor(themeColor), backgroundColor],
     },
   };
 }
@@ -423,8 +445,98 @@ function findBrandColor(document: Document, fallback: string): string {
   return inlineColor || fallback;
 }
 
+function findBrandPalette(document: Document, styleText: string): string[] {
+  const metaColors = [
+    getMeta(document, "theme-color"),
+    getMeta(document, "msapplication-TileColor"),
+  ].filter(Boolean) as string[];
+  const inlineColors = Array.from(document.querySelectorAll<HTMLElement>("[style]"))
+    .flatMap((element) => [element.style.backgroundColor, element.style.color, element.style.borderColor])
+    .map(rgbToHex)
+    .filter(Boolean) as string[];
+  const cssColors = Array.from(styleText.matchAll(/#[0-9a-f]{3,8}\b|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)/gi))
+    .map((match) => rgbToHex(match[0]) || normalizeColor(match[0], ""))
+    .filter(Boolean) as string[];
+
+  return rankColors([...metaColors, ...inlineColors, ...cssColors]);
+}
+
+function rankColors(colors: string[]): string[] {
+  const counts = new Map<string, number>();
+  colors
+    .map((color) => normalizeColor(expandShortHex(color), ""))
+    .filter((color) => /^#[0-9a-f]{6}$/i.test(color))
+    .filter((color) => {
+      const brightness = colorBrightness(color);
+      return brightness > 18 && brightness < 245;
+    })
+    .forEach((color) => counts.set(color.toLowerCase(), (counts.get(color.toLowerCase()) || 0) + 1));
+
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([color]) => color)
+    .slice(0, 6);
+}
+
+function expandShortHex(value: string): string {
+  const trimmed = value.trim();
+  const match = trimmed.match(/^#([0-9a-f])([0-9a-f])([0-9a-f])$/i);
+  return match ? `#${match[1]}${match[1]}${match[2]}${match[2]}${match[3]}${match[3]}` : trimmed;
+}
+
+function findFontHint(source: string): string | undefined {
+  const match = source.match(/font-family\s*:\s*([^;}{]+)/i);
+  if (!match) {
+    return undefined;
+  }
+
+  const firstFont = match[1]
+    .split(",")[0]
+    .replace(/["']/g, "")
+    .trim();
+
+  if (!firstFont || /var\(|inherit|initial|system-ui|sans-serif|serif|monospace/i.test(firstFont)) {
+    return undefined;
+  }
+
+  return firstFont;
+}
+
+function findInlineFont(document: Document): string | undefined {
+  return Array.from(document.querySelectorAll<HTMLElement>("[style]"))
+    .map((element) => element.style.fontFamily)
+    .map((font) => font?.split(",")[0]?.replace(/["']/g, "").trim())
+    .find(Boolean);
+}
+
+function chooseLayoutStyle(primaryColor: string, source: string): BrandSettings["layoutStyle"] {
+  const text = source.toLowerCase();
+  if (/engineering|platform|developer|data|security|cloud|api|technology|software/.test(text)) {
+    return "technical";
+  }
+  if (/university|research|journal|school|academy|institute|policy|public/.test(text)) {
+    return "classic";
+  }
+  if (colorBrightness(primaryColor) < 72) {
+    return "executive";
+  }
+  return "editorial";
+}
+
+function pickReadableText(backgroundColor: string): string {
+  return colorBrightness(backgroundColor) > 150 ? "#24211d" : "#fffaf0";
+}
+
+function colorBrightness(color: string): number {
+  const normalized = normalizeColor(expandShortHex(color), "#ffffff").replace("#", "").slice(0, 6);
+  const red = Number.parseInt(normalized.slice(0, 2), 16);
+  const green = Number.parseInt(normalized.slice(2, 4), 16);
+  const blue = Number.parseInt(normalized.slice(4, 6), 16);
+  return (red * 299 + green * 587 + blue * 114) / 1000;
+}
+
 function rgbToHex(value: string): string | undefined {
-  const match = value.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/i);
+  const match = value.match(/^rgb\(\s*(\d+),\s*(\d+),\s*(\d+)\s*\)$/i);
   if (!match) {
     return normalizeColor(value, "");
   }
