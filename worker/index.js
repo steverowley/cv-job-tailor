@@ -20,12 +20,12 @@ export default {
     }
 
     const url = new URL(request.url);
-    if (!ALLOWED_ORIGINS.has(origin)) {
-      return json({ error: "This Worker only accepts requests from the CV Job Tailor app." }, 403, corsHeaders);
+    if (url.pathname === "/status" && request.method === "GET" && (!origin || ALLOWED_ORIGINS.has(origin))) {
+      return json({ hasOpenAiKey: Boolean(env.OPENAI_API_KEY) }, 200, corsHeaders);
     }
 
-    if (url.pathname === "/status" && request.method === "GET") {
-      return json({ hasOpenAiKey: Boolean(env.OPENAI_API_KEY) }, 200, corsHeaders);
+    if (!ALLOWED_ORIGINS.has(origin)) {
+      return json({ error: "This Worker only accepts requests from the CV Job Tailor app." }, 403, corsHeaders);
     }
 
     if (url.pathname === "/analyse" && request.method === "POST") {
