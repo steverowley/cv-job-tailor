@@ -36,7 +36,12 @@ try {
 
   console.log("PASS: Worker is reachable and OPENAI_API_KEY is configured.");
 } catch (error) {
-  fail(error instanceof Error ? error.message : "Worker check failed.");
+  const cause = error?.cause;
+  const detail =
+    cause && typeof cause === "object"
+      ? [cause.code, cause.hostname, cause.message].filter(Boolean).join(" / ")
+      : "";
+  fail([error instanceof Error ? error.message : "Worker check failed.", detail].filter(Boolean).join(" "));
 }
 
 function normalizeWorkerUrl(value) {
