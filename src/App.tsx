@@ -11,7 +11,7 @@ import {
   Upload,
 } from "lucide-react";
 import { extractCvText } from "./documentParser";
-import { BrandReadError, readEmployerBrand, readJobDescription } from "./jobReader";
+import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
 import { analyseCvAgainstJob } from "./openai";
 import { exportElementAsPdf } from "./pdfExport";
 import { AnalysisResult, BrandSettings } from "./types";
@@ -24,12 +24,17 @@ const DEFAULT_BRAND: BrandSettings = {
   accentColor: "#d3a84f",
 };
 
+const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
+
 export function App() {
   const [apiKey, setApiKey] = useState(() => sessionStorage.getItem("openai-api-key") || "");
   const [jobUrl, setJobUrl] = useState("");
   const [jobText, setJobText] = useState("");
   const [employerWebsiteUrl, setEmployerWebsiteUrl] = useState("");
   const [employerBrandSource, setEmployerBrandSource] = useState("");
+  const [workerUrl, setWorkerUrl] = useState(
+    () => sessionStorage.getItem("cv-job-tailor-worker-url") || DEFAULT_WORKER_URL,
+  );
   const [cvFileName, setCvFileName] = useState("");
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
@@ -37,7 +42,10 @@ export function App() {
   const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
+  const [readDiagnostics, setReadDiagnostics] = useState<ReadDiagnostic[]>([]);
   const [brandMessage, setBrandMessage] = useState("Add the employer website to make the PDF match their public brand signals.");
+  const [showJobFallback, setShowJobFallback] = useState(false);
+  const [showBrandFallback, setShowBrandFallback] = useState(false);
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const canAnalyse = useMemo(
@@ -54,6 +62,15 @@ export function App() {
     }
   }
 
+  function saveWorkerUrl(value: string) {
+    setWorkerUrl(value);
+    if (value.trim()) {
+      sessionStorage.setItem("cv-job-tailor-worker-url", value.trim());
+    } else {
+      sessionStorage.removeItem("cv-job-tailor-worker-url");
+    }
+  }
+
   async function handleCvUpload(file?: File) {
     if (!file) {
       return;
@@ -62,6 +79,7 @@ export function App() {
     try {
       setStatus("reading");
       setMessage("Reading CV text locally in your browser...");
+      setReadDiagnostics([]);
       const text = await extractCvText(file);
       if (text.length < 80) {
         throw new Error("The CV text looks too short. Try a different PDF/DOCX export.");
@@ -79,7 +97,11 @@ export function App() {
     try {
       setStatus("analysing");
       setMessage("Reading the job details and comparing them with the CV...");
-      const job = await readJobDescription(jobUrl, jobText);
+      setReadDiagnostics([]);
+      const job = await readJobDescription(jobUrl, jobText, workerUrl);
+      if (job.diagnostics?.length) {
+        setReadDiagnostics(job.diagnostics);
+      }
       if (!employerWebsiteUrl.trim()) {
         setBrand((current) => ({
           ...current,
@@ -101,6 +123,8 @@ export function App() {
       setMessage(job.warning || "Analysis complete. Review the evidence before exporting.");
       setStatus("ready");
     } catch (error) {
+      setShowJobFallback(true);
+      setReadDiagnostics(getErrorDiagnostics(error));
       showError(error);
     }
   }
@@ -108,19 +132,25 @@ export function App() {
   async function generateBrand() {
     try {
       setStatus("reading");
+      setReadDiagnostics([]);
       setBrandMessage(
         employerBrandSource.trim()
           ? "Generating brand from the pasted employer website details..."
           : "Reading public brand signals from the employer website...",
       );
-      const generatedBrand = await readEmployerBrand(employerWebsiteUrl, employerBrandSource);
+      const generatedBrand = await readEmployerBrand(employerWebsiteUrl, employerBrandSource, workerUrl);
       setBrand(generatedBrand);
+      setShowBrandFallback(false);
       setBrandMessage("Brand generated. You can still fine-tune it before export.");
       setStatus("idle");
     } catch (error) {
       if (error instanceof BrandReadError) {
         setBrand((current) => ({ ...current, ...error.fallbackBrand }));
+        setReadDiagnostics(error.diagnostics);
+      } else {
+        setReadDiagnostics(getErrorDiagnostics(error));
       }
+      setShowBrandFallback(true);
       setBrandMessage(error instanceof Error ? error.message : "The employer website could not be read.");
       setStatus("error");
     }
@@ -196,14 +226,18 @@ export function App() {
                 placeholder="https://company.com/careers/role"
               />
             </label>
-            <label>
-              Paste fallback
-              <textarea
-                value={jobText}
-                onChange={(event) => setJobText(event.target.value)}
-                placeholder="Paste the job description here if the website blocks browser access."
-              />
-            </label>
+            {showJobFallback || jobText || !jobUrl.trim() ? (
+              <label className={jobUrl.trim() && !showJobFallback && !jobText ? "fallback-muted" : ""}>
+                Paste fallback
+                <textarea
+                  value={jobText}
+                  onChange={(event) => setJobText(event.target.value)}
+                  placeholder="Paste the job description here if the website blocks browser access."
+                />
+              </label>
+            ) : (
+              <p className="hint">Paste fallback will appear if the URL cannot be read.</p>
+            )}
           </Panel>
 
           <Panel icon={<Upload />} title="3. Upload CV">
@@ -220,6 +254,16 @@ export function App() {
           </Panel>
 
           <Panel icon={<Palette />} title="4. Employer brand">
+            <label>
+              Cloudflare Worker URL
+              <input
+                value={workerUrl}
+                onChange={(event) => saveWorkerUrl(event.target.value)}
+                type="url"
+                placeholder="https://cv-job-tailor-reader.your-account.workers.dev"
+              />
+            </label>
+            <p className="hint">Optional website reader used when employer pages block GitHub Pages.</p>
             <label>
               Employer website
               <input
@@ -238,14 +282,18 @@ export function App() {
               Generate brand
             </button>
             <p className="hint">{brandMessage}</p>
-            <label>
-              Paste website text, HTML, or brand notes
-              <textarea
-                value={employerBrandSource}
-                onChange={(event) => setEmployerBrandSource(event.target.value)}
-                placeholder="Optional fallback: paste the employer homepage text, page source, logo URL, or colours such as #123456."
-              />
-            </label>
+            {showBrandFallback || employerBrandSource ? (
+              <label>
+                Paste website text, HTML, or brand notes
+                <textarea
+                  value={employerBrandSource}
+                  onChange={(event) => setEmployerBrandSource(event.target.value)}
+                  placeholder="Optional fallback: paste the employer homepage text, page source, logo URL, or colours such as #123456."
+                />
+              </label>
+            ) : (
+              <p className="hint">Manual brand fallback will appear if the website cannot be read.</p>
+            )}
             <div className="brand-preview">
               <div className="brand-swatch" style={{ background: brand.primaryColor }} />
               <div>
@@ -253,7 +301,7 @@ export function App() {
                 <span>{brand.logoUrl ? "Logo found" : "No logo detected yet"}</span>
               </div>
             </div>
-            <div className="brand-row">
+            <div className={`brand-row ${showBrandFallback || brand.logoUrl ? "" : "fallback-muted"}`}>
               <label>
                 Employer name
                 <input
@@ -270,8 +318,8 @@ export function App() {
                 />
               </label>
             </div>
-            <p className="hint">These overrides are useful when the employer website blocks browser reads.</p>
-            <div className="swatches">
+            <p className="hint">Manual overrides are available if the website blocks automatic brand reading.</p>
+            <div className={`swatches ${showBrandFallback ? "" : "fallback-muted"}`}>
               <label>
                 Primary
                 <input
@@ -302,6 +350,7 @@ export function App() {
               <span>{message}</span>
             </div>
           ) : null}
+          <ReadDiagnostics diagnostics={readDiagnostics} />
         </div>
 
         <div className="review-stack">
@@ -334,6 +383,32 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function ReadDiagnostics({ diagnostics }: { diagnostics: ReadDiagnostic[] }) {
+  if (!diagnostics.length) {
+    return null;
+  }
+
+  return (
+    <section className="diagnostics-box">
+      <strong>Read diagnostics</strong>
+      <ul>
+        {diagnostics.map((item, index) => (
+          <li key={`${item.stage}-${index}`} className={item.ok ? "diagnostic-ok" : "diagnostic-fail"}>
+            <span>{item.stage}</span>
+            <p>{item.message}</p>
+            {item.detail ? <small>{item.detail}</small> : null}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function getErrorDiagnostics(error: unknown): ReadDiagnostic[] {
+  const diagnostics = (error as { diagnostics?: unknown })?.diagnostics;
+  return Array.isArray(diagnostics) ? (diagnostics as ReadDiagnostic[]) : [];
 }
 
 function Panel(props: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
