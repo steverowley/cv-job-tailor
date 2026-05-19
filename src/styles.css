@@ -1,6 +1,6 @@
 :root {
-  color: #171717;
-  background: #f7f5ef;
+  color: #111111;
+  background: #f7f6f2;
   font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -14,9 +14,9 @@ body {
   margin: 0;
   min-width: 320px;
   background:
-    radial-gradient(circle at 18% 8%, rgba(69, 111, 98, 0.12), transparent 26rem),
-    radial-gradient(circle at 88% 2%, rgba(190, 151, 82, 0.13), transparent 22rem),
-    linear-gradient(180deg, #fbfaf7 0%, #f2efe7 100%);
+    linear-gradient(90deg, rgba(17, 17, 17, 0.035) 1px, transparent 1px),
+    #f7f6f2;
+  background-size: 25vw 1px;
 }
 
 button,
@@ -36,7 +36,7 @@ button svg,
 
 .app-shell {
   min-height: 100vh;
-  padding: 42px 28px 64px;
+  padding: 48px 34px 72px;
 }
 
 .hero,
@@ -47,35 +47,101 @@ button svg,
 
 .hero {
   align-items: end;
+  border-bottom: 1px solid rgba(17, 17, 17, 0.12);
   display: grid;
-  gap: 48px;
-  grid-template-columns: minmax(0, 1fr) 310px;
-  padding: 12px 0 38px;
+  gap: 64px;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  padding: 8px 0 44px;
+}
+
+.working-indicator {
+  background: rgba(255, 255, 252, 0.82);
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 0;
+  box-shadow: none;
+  display: grid;
+  gap: 12px;
+  margin: 0 auto 24px;
+  max-width: 1260px;
+  overflow: hidden;
+  padding: 14px 16px 16px;
+}
+
+.working-indicator div:first-child {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.working-indicator span {
+  color: #42443f;
+  font-size: 0.92rem;
+  line-height: 1.4;
+}
+
+.working-indicator strong {
+  color: #456f62;
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.working-track {
+  background: rgba(23, 23, 23, 0.08);
+  border-radius: 999px;
+  height: 6px;
+  overflow: hidden;
+  position: relative;
+}
+
+.working-track span {
+  animation: working-slide 1.45s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, #456f62, #be9752, transparent);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+  left: -42%;
+  position: absolute;
+  top: 0;
+  width: 42%;
+}
+
+@keyframes working-slide {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(340%);
+  }
 }
 
 .section-label {
-  color: #607166;
+  color: #111111;
   font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  margin: 0 0 18px;
+  letter-spacing: 0.11em;
+  margin: 0 0 22px;
   text-transform: uppercase;
 }
 
 h1 {
-  color: #141414;
+  color: #111111;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  font-size: clamp(2.4rem, 5vw, 5.4rem);
+  font-size: clamp(2.7rem, 6.6vw, 7.4rem);
   font-weight: 400;
   letter-spacing: 0;
-  line-height: 0.98;
+  line-height: 0.9;
   margin: 0;
   max-width: 980px;
 }
 
 .hero-copy {
-  color: #5b5d58;
-  font-size: 1.03rem;
+  color: #575750;
+  font-size: 1rem;
   line-height: 1.75;
   margin: 24px 0 0;
   max-width: 670px;
@@ -86,10 +152,10 @@ h1 {
 .config-summary,
 .diagnostics-box,
 .gap-box {
-  background: rgba(255, 255, 252, 0.76);
-  border: 1px solid rgba(43, 43, 38, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 18px 52px rgba(34, 31, 25, 0.06);
+  background: rgba(255, 255, 252, 0.74);
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .privacy-panel,
@@ -104,7 +170,7 @@ h1 {
 .privacy-panel svg,
 .status svg,
 .config-summary svg {
-  color: #456f62;
+  color: var(--brand-primary, #111111);
   flex: 0 0 auto;
   margin-top: 2px;
 }
@@ -159,8 +225,8 @@ h1 {
 .workspace-grid {
   align-items: start;
   display: grid;
-  gap: 36px;
-  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  gap: 46px;
+  grid-template-columns: minmax(300px, 370px) minmax(0, 1fr);
 }
 
 .input-stack,
@@ -176,9 +242,9 @@ h1 {
 
 .output-tabs {
   align-items: center;
-  background: rgba(255, 255, 252, 0.68);
-  border: 1px solid rgba(43, 43, 38, 0.11);
-  border-radius: 8px;
+  background: transparent;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
   padding: 5px;
@@ -187,8 +253,8 @@ h1 {
 .output-tabs button {
   background: transparent;
   border: 0;
-  border-radius: 6px;
-  color: #646760;
+  border-radius: 0;
+  color: #575750;
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 700;
@@ -196,18 +262,18 @@ h1 {
 }
 
 .output-tabs button.active {
-  background: #171717;
+  background: #111111;
   color: #fffdf7;
-  box-shadow: 0 8px 22px rgba(23, 23, 23, 0.14);
+  box-shadow: none;
 }
 
 .panel,
 .preview-shell {
-  background: rgba(255, 255, 252, 0.74);
-  border: 1px solid rgba(43, 43, 38, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 20px 62px rgba(34, 31, 25, 0.055);
-  padding: 20px;
+  background: rgba(255, 255, 252, 0.76);
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 22px;
 }
 
 .panel-title {
@@ -219,7 +285,7 @@ h1 {
 }
 
 .panel-title svg {
-  color: #456f62;
+  color: var(--brand-primary, #111111);
 }
 
 h2,
@@ -235,7 +301,7 @@ h2 {
 }
 
 h3 {
-  color: var(--brand-primary, #456f62);
+  color: var(--brand-primary, #111111);
   font-size: 0.73rem;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -254,10 +320,10 @@ label {
 
 input,
 textarea {
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(43, 43, 38, 0.14);
-  border-radius: 8px;
-  color: #181818;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(17, 17, 17, 0.14);
+  border-radius: 0;
+  color: #111111;
   outline: none;
   padding: 12px 13px;
   transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
@@ -267,8 +333,8 @@ textarea {
 input:focus,
 textarea:focus {
   background: #ffffff;
-  border-color: color-mix(in srgb, var(--brand-primary, #456f62) 58%, #171717);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand-primary, #456f62) 13%, transparent);
+  border-color: color-mix(in srgb, var(--brand-primary, #111111) 68%, #111111);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand-primary, #111111) 10%, transparent);
 }
 
 textarea {
@@ -278,9 +344,9 @@ textarea {
 
 .upload-box {
   align-items: center;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(250, 248, 241, 0.74));
-  border: 1px dashed rgba(43, 43, 38, 0.24);
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px dashed rgba(17, 17, 17, 0.24);
+  border-radius: 0;
   cursor: pointer;
   display: flex;
   gap: 10px;
@@ -295,7 +361,7 @@ textarea {
 }
 
 .upload-box svg {
-  color: #456f62;
+  color: var(--brand-primary, #111111);
 }
 
 .brand-row,
@@ -315,7 +381,7 @@ textarea {
 .brand-action,
 .text-action {
   align-items: center;
-  border-radius: 8px;
+  border-radius: 0;
   cursor: pointer;
   display: inline-flex;
   font-size: 0.84rem;
@@ -329,29 +395,34 @@ textarea {
 }
 
 .primary-action {
-  background: #171717;
-  border: 1px solid #171717;
+  background: #111111;
+  border: 1px solid #111111;
   color: #fffdf7;
-  box-shadow: 0 18px 42px rgba(23, 23, 23, 0.18);
+  box-shadow: none;
 }
 
 .primary-action:hover:not(:disabled),
 .secondary-action:hover:not(:disabled),
 .brand-action:hover:not(:disabled) {
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--brand-primary, #111111) 12%, #ffffff);
+  transform: none;
+}
+
+.primary-action:hover:not(:disabled) {
+  background: #2a2a2a;
 }
 
 .secondary-action,
 .brand-action {
   background: #ffffff;
-  border: 1px solid rgba(23, 23, 23, 0.14);
+  border: 1px solid rgba(17, 17, 17, 0.14);
   color: #1f211f;
 }
 
 .text-action {
   background: transparent;
   border: 0;
-  color: #456f62;
+  color: var(--brand-primary, #111111);
   font-size: 0.8rem;
   justify-content: flex-start;
   min-height: 28px;
@@ -368,8 +439,8 @@ textarea {
 .brand-preview {
   align-items: center;
   background: #ffffff;
-  border: 1px solid rgba(43, 43, 38, 0.11);
-  border-radius: 8px;
+  border: 1px solid rgba(17, 17, 17, 0.11);
+  border-radius: 0;
   display: flex;
   gap: 12px;
   margin: 14px 0 4px;
@@ -384,8 +455,8 @@ textarea {
 }
 
 .palette-strip span {
-  border: 1px solid rgba(23, 23, 23, 0.1);
-  border-radius: 8px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 0;
   display: block;
   height: 22px;
 }
@@ -398,8 +469,8 @@ textarea {
 }
 
 .brand-swatch {
-  border: 1px solid rgba(23, 23, 23, 0.12);
-  border-radius: 50%;
+  border: 1px solid rgba(17, 17, 17, 0.12);
+  border-radius: 0;
   box-shadow: inset 0 0 0 4px rgba(255, 255, 255, 0.28);
   height: 42px;
   width: 42px;
@@ -413,11 +484,24 @@ button:disabled {
 .status {
   align-items: flex-start;
   color: #42443f;
+  overflow: hidden;
+  position: relative;
 }
 
 .status-error {
   border-color: rgba(156, 69, 54, 0.26);
   color: #7e3328;
+}
+
+.status:not(.status-error)::after {
+  animation: working-slide 1.45s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, var(--brand-primary, #111111), transparent);
+  bottom: 0;
+  content: "";
+  height: 3px;
+  left: -42%;
+  position: absolute;
+  width: 42%;
 }
 
 .status-error svg {
@@ -520,8 +604,8 @@ button:disabled {
 
 .evidence-item {
   background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(43, 43, 38, 0.09);
-  border-radius: 8px;
+  border: 1px solid rgba(17, 17, 17, 0.09);
+  border-radius: 0;
   padding: 14px;
 }
 
@@ -550,12 +634,12 @@ button:disabled {
 
 .cv-page {
   background:
-    linear-gradient(135deg, color-mix(in srgb, var(--brand-primary, #456f62) 5%, transparent), transparent 44%),
+    linear-gradient(90deg, color-mix(in srgb, var(--brand-primary, #111111) 8%, transparent) 0 22%, transparent 22%),
     var(--brand-bg, #fffdfa);
-  border: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 20%, rgba(23, 23, 23, 0.12));
-  border-radius: 2px;
-  box-shadow: 0 28px 86px rgba(23, 23, 23, 0.13);
-  color: var(--brand-text, #171717);
+  border: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 18%, rgba(17, 17, 17, 0.12));
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--brand-text, #111111);
   font-family: var(--brand-font, "Avenir Next"), Avenir, "Segoe UI", sans-serif;
   margin: 0 auto;
   max-width: 794px;
@@ -569,19 +653,19 @@ button:disabled {
 }
 
 .cv-document::before {
-  background: var(--brand-primary, #456f62);
+  background: var(--brand-primary, #111111);
   content: "";
   display: block;
-  height: 8px;
+  height: 6px;
 }
 
 .cv-header {
-  padding: 54px 58px 34px;
+  padding: 58px 60px 36px;
 }
 
 .cv-brand-line {
   align-items: center;
-  color: color-mix(in srgb, var(--brand-primary, #456f62) 82%, var(--brand-text, #171717));
+  color: color-mix(in srgb, var(--brand-primary, #111111) 82%, var(--brand-text, #111111));
   display: flex;
   font-size: 0.68rem;
   font-weight: 850;
@@ -601,9 +685,9 @@ button:disabled {
 }
 
 .cv-header h2 {
-  color: var(--brand-text, #171717);
+  color: var(--brand-text, #111111);
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  font-size: 3.05rem;
+  font-size: 3.25rem;
   font-weight: 400;
   letter-spacing: 0;
   line-height: 0.98;
@@ -613,12 +697,12 @@ button:disabled {
 .cv-contact,
 .cv-headline,
 .cv-organisation {
-  color: color-mix(in srgb, var(--brand-text, #171717) 62%, #ffffff);
+  color: color-mix(in srgb, var(--brand-text, #111111) 62%, #ffffff);
   margin: 8px 0 0;
 }
 
 .cv-headline {
-  color: color-mix(in srgb, var(--brand-primary, #456f62) 72%, var(--brand-text, #171717));
+  color: color-mix(in srgb, var(--brand-primary, #111111) 72%, var(--brand-text, #111111));
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   font-size: 1.2rem;
   line-height: 1.5;
@@ -626,7 +710,7 @@ button:disabled {
 }
 
 .cv-contact {
-  border-top: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 18%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 18%, transparent);
   font-size: 0.76rem;
   font-weight: 700;
   line-height: 1.65;
@@ -636,8 +720,8 @@ button:disabled {
 
 .cv-header img {
   background: rgba(255, 255, 255, 0.76);
-  border: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 16%, rgba(23, 23, 23, 0.1));
-  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 16%, rgba(17, 17, 17, 0.1));
+  border-radius: 0;
   max-height: 74px;
   max-width: 154px;
   object-fit: contain;
@@ -652,7 +736,7 @@ button:disabled {
 }
 
 .cv-sidebar {
-  border-right: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 16%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 16%, transparent);
   padding-right: 26px;
 }
 
@@ -664,14 +748,15 @@ button:disabled {
 .cv-sidebar h3,
 .cv-main h3,
 .cv-note h3 {
-  color: color-mix(in srgb, var(--brand-primary, #456f62) 88%, var(--brand-text, #171717));
+  color: color-mix(in srgb, var(--brand-primary, #111111) 88%, var(--brand-text, #111111));
 }
 
 .cv-profile {
-  background: color-mix(in srgb, var(--brand-primary, #456f62) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 14%, transparent);
-  border-radius: 8px;
-  padding: 20px 22px;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 18%, transparent);
+  border-radius: 0;
+  padding: 18px 0 0;
 }
 
 .cv-profile h3 {
@@ -695,21 +780,21 @@ button:disabled {
 }
 
 .cv-role-row strong {
-  color: var(--brand-text, #171717);
+  color: var(--brand-text, #111111);
   font-size: 1.04rem;
   font-weight: 780;
   line-height: 1.3;
 }
 
 .cv-role-row span {
-  color: color-mix(in srgb, var(--brand-primary, #456f62) 58%, var(--brand-text, #171717));
+  color: color-mix(in srgb, var(--brand-primary, #111111) 58%, var(--brand-text, #111111));
   font-size: 0.76rem;
   font-weight: 800;
   line-height: 1.5;
 }
 
 .cv-organisation {
-  color: color-mix(in srgb, var(--brand-primary, #456f62) 46%, var(--brand-text, #171717));
+  color: color-mix(in srgb, var(--brand-primary, #111111) 46%, var(--brand-text, #111111));
   font-size: 0.94rem;
   line-height: 1.5;
 }
@@ -736,9 +821,9 @@ button:disabled {
 }
 
 .cv-skills span {
-  background: color-mix(in srgb, var(--brand-primary, #456f62) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 18%, transparent);
-  color: color-mix(in srgb, var(--brand-primary, #456f62) 72%, var(--brand-text, #171717));
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 18%, transparent);
+  color: color-mix(in srgb, var(--brand-primary, #111111) 72%, var(--brand-text, #111111));
   display: inline-block;
   font-size: 0.7rem;
   line-height: 1.35;
@@ -748,7 +833,7 @@ button:disabled {
 
 .cv-executive {
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #456f62) 12%, transparent), transparent 260px),
+    linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #111111) 8%, transparent), transparent 290px),
     var(--brand-bg, #fffdfa);
 }
 
@@ -762,8 +847,8 @@ button:disabled {
 
 .cv-technical {
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--brand-primary, #456f62) 6%, transparent) 1px, transparent 1px),
-    linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #456f62) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--brand-primary, #111111) 5%, transparent) 1px, transparent 1px),
+    linear-gradient(180deg, color-mix(in srgb, var(--brand-primary, #111111) 4%, transparent) 1px, transparent 1px),
     var(--brand-bg, #fffdfa);
   background-size: 26px 26px;
 }
@@ -775,7 +860,8 @@ button:disabled {
 }
 
 .cv-technical .cv-profile {
-  border-left: 4px solid var(--brand-primary, #456f62);
+  border-left: 4px solid var(--brand-primary, #111111);
+  padding-left: 18px;
 }
 
 .cv-classic .cv-layout {
@@ -783,7 +869,7 @@ button:disabled {
 }
 
 .cv-classic .cv-sidebar {
-  border-bottom: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 16%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 16%, transparent);
   border-right: 0;
   display: grid;
   gap: 22px;
@@ -793,7 +879,7 @@ button:disabled {
 }
 
 .cv-editorial .cv-header {
-  border-bottom: 1px solid color-mix(in srgb, var(--brand-primary, #456f62) 14%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--brand-primary, #111111) 14%, transparent);
 }
 
 .cv-note {
