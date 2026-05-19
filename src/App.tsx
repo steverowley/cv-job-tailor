@@ -60,6 +60,7 @@ export function App() {
   const hasConfiguredWorkerUrl = Boolean(DEFAULT_WORKER_URL && workerUrl.trim() === DEFAULT_WORKER_URL);
   const hasWorkerOpenAiKey = workerStatus === "configured";
   const shouldShowKeyInput = showPersonalKey || apiKey.trim() || !hasWorkerOpenAiKey;
+  const workingLabel = getWorkingLabel(status, workerStatus);
 
   useEffect(() => {
     if (!workerUrl.trim()) {
@@ -253,6 +254,8 @@ export function App() {
           </div>
         </div>
       </section>
+
+      {workingLabel ? <WorkingIndicator label={workingLabel} /> : null}
 
       <section className="workspace-grid">
         <div className="input-stack">
@@ -499,6 +502,36 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function WorkingIndicator({ label }: { label: string }) {
+  return (
+    <div className="working-indicator" role="status" aria-live="polite">
+      <div>
+        <span>{label}</span>
+        <strong>Working</strong>
+      </div>
+      <div className="working-track" aria-hidden="true">
+        <span />
+      </div>
+    </div>
+  );
+}
+
+function getWorkingLabel(status: Status, workerStatus: WorkerStatus): string {
+  if (status === "reading") {
+    return "Reading the document or employer website";
+  }
+  if (status === "analysing") {
+    return "Comparing the job description with the CV";
+  }
+  if (status === "exporting") {
+    return "Preparing the PDF";
+  }
+  if (workerStatus === "checking") {
+    return "Checking the website reader";
+  }
+  return "";
 }
 
 function ReadDiagnostics({ diagnostics }: { diagnostics: ReadDiagnostic[] }) {
