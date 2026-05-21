@@ -1,7 +1,7 @@
 :root {
   color: #111111;
   background: #f7f6f2;
-  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  font-family: "Inter", "Segoe UI", "Avenir Next", system-ui, -apple-system, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
@@ -640,7 +640,7 @@ button:disabled {
   border-radius: 0;
   box-shadow: none;
   color: var(--brand-text, #111111);
-  font-family: var(--brand-font, "Avenir Next"), Avenir, "Segoe UI", sans-serif;
+  font-family: var(--brand-font, "Inter"), "Segoe UI", "Avenir Next", system-ui, sans-serif;
   margin: 0 auto;
   max-width: 794px;
   min-height: 1123px;
@@ -854,7 +854,7 @@ button:disabled {
 }
 
 .cv-technical .cv-header h2 {
-  font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  font-family: "Inter", "Segoe UI", "Avenir Next", system-ui, sans-serif;
   font-size: 2.65rem;
   font-weight: 800;
 }

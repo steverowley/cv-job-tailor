@@ -4,16 +4,16 @@ import {
   BadgeCheck,
   Download,
   FileText,
-  KeyRound,
   Link,
   Palette,
+  Server,
   Sparkles,
   Upload,
 } from "lucide-react";
-import { extractCvText } from "./documentParser";
+import { extractCvText, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
-import { analyseCvAgainstJob } from "./openai";
-import { exportElementAsPdf } from "./pdfExport";
+import { analyseCvAgainstJob } from "./analysis";
+import { exportTailoredCvPdf } from "./pdfExport";
 import { AnalysisResult, BrandSettings } from "./types";
 
 type Status = "idle" | "reading" | "analysing" | "ready" | "exporting" | "error";
@@ -26,9 +26,9 @@ const DEFAULT_BRAND: BrandSettings = {
 };
 
 const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
+const ANALYSE_SHARED_SECRET = import.meta.env.VITE_ANALYSE_SHARED_SECRET || "";
 
 export function App() {
-  const [apiKey, setApiKey] = useState(() => sessionStorage.getItem("openai-api-key") || "");
   const [jobUrl, setJobUrl] = useState("");
   const [jobText, setJobText] = useState("");
   const [employerWebsiteUrl, setEmployerWebsiteUrl] = useState("");
@@ -37,7 +37,6 @@ export function App() {
     () => sessionStorage.getItem("cv-job-tailor-worker-url") || DEFAULT_WORKER_URL,
   );
   const [isEditingWorkerUrl, setIsEditingWorkerUrl] = useState(() => !DEFAULT_WORKER_URL);
-  const [showPersonalKey, setShowPersonalKey] = useState(() => Boolean(sessionStorage.getItem("openai-api-key")));
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus>("idle");
   const [workerStatusDetail, setWorkerStatusDetail] = useState("");
   const [cvFileName, setCvFileName] = useState("");
@@ -54,12 +53,10 @@ export function App() {
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const canAnalyse = useMemo(
-    () => (apiKey.trim() || workerUrl.trim()) && (jobUrl.trim() || jobText.trim()) && cvText.trim(),
-    [apiKey, jobText, jobUrl, cvText, workerUrl],
+    () => workerStatus === "configured" && (jobUrl.trim() || jobText.trim()) && cvText.trim(),
+    [workerStatus, jobText, jobUrl, cvText],
   );
   const hasConfiguredWorkerUrl = Boolean(DEFAULT_WORKER_URL && workerUrl.trim() === DEFAULT_WORKER_URL);
-  const hasWorkerOpenAiKey = workerStatus === "configured";
-  const shouldShowKeyInput = showPersonalKey || apiKey.trim() || !hasWorkerOpenAiKey;
   const workingLabel = getWorkingLabel(status, workerStatus);
 
   useEffect(() => {
@@ -79,7 +76,9 @@ export function App() {
           signal: controller.signal,
         });
         const rawText = await response.text();
-        const payload = rawText ? (JSON.parse(rawText) as { error?: string; hasOpenAiKey?: boolean }) : {};
+        const payload = rawText
+          ? (JSON.parse(rawText) as { error?: string; hasAnthropicKey?: boolean })
+          : {};
         if (!response.ok) {
           setWorkerStatusDetail(
             `Status check reached ${endpoint}, but the Worker returned ${response.status}. ${payload.error || rawText}`,
@@ -88,7 +87,7 @@ export function App() {
           return;
         }
         setWorkerStatusDetail(`Checked ${endpoint}.`);
-        setWorkerStatus(payload.hasOpenAiKey ? "configured" : "missing-key");
+        setWorkerStatus(payload.hasAnthropicKey ? "configured" : "missing-key");
       } catch (error) {
         if (!controller.signal.aborted) {
           setWorkerStatus("unreachable");
@@ -100,15 +99,6 @@ export function App() {
     checkWorker();
     return () => controller.abort();
   }, [workerUrl]);
-
-  function saveKey(value: string) {
-    setApiKey(value);
-    if (value.trim()) {
-      sessionStorage.setItem("openai-api-key", value);
-    } else {
-      sessionStorage.removeItem("openai-api-key");
-    }
-  }
 
   function saveWorkerUrl(value: string) {
     setWorkerUrl(value);
@@ -135,8 +125,10 @@ export function App() {
       setMessage("Reading CV text locally in your browser...");
       setReadDiagnostics([]);
       const text = await extractCvText(file);
-      if (text.length < 80) {
-        throw new Error("The CV text looks too short. Try a different PDF/DOCX export.");
+      if (!looksLikeUsableCv(text)) {
+        throw new Error(
+          "The CV text looks too short or did not parse readable words. Try a different PDF/DOCX export.",
+        );
       }
       setCvText(text);
       setCvFileName(file.name);
@@ -166,8 +158,8 @@ export function App() {
       }
 
       const result = await analyseCvAgainstJob({
-        apiKey,
         workerUrl,
+        sharedSecret: ANALYSE_SHARED_SECRET,
         jobText: job.text,
         cvText,
         employerHint: brand.companyName || job.brand.companyName,
@@ -212,17 +204,19 @@ export function App() {
   }
 
   async function exportPdf() {
-    if (!pdfRef.current || !analysis) {
+    if (!analysis) {
       return;
     }
 
     try {
       setStatus("exporting");
       setMessage("Preparing the branded PDF...");
-      await exportElementAsPdf(
-        pdfRef.current,
-        `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`,
-      );
+      await exportTailoredCvPdf({
+        analysis,
+        brand,
+        filename: `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`,
+        workerUrl,
+      });
       setStatus("ready");
       setMessage("PDF downloaded.");
     } catch (error) {
@@ -242,8 +236,8 @@ export function App() {
           <p className="section-label">GitHub Pages CV tailoring</p>
           <h1>Turn a job post and your existing CV into an evidence-only branded PDF.</h1>
           <p className="hero-copy">
-            The app runs in the browser, uses your own OpenAI key, keeps CV parsing local, and asks you to
-            approve the result before export.
+            The app runs in the browser, sends CV and job text to a Cloudflare Worker that calls Claude,
+            keeps CV parsing local, and asks you to approve the result before export.
           </p>
         </div>
         <div className="privacy-panel">
@@ -259,36 +253,39 @@ export function App() {
 
       <section className="workspace-grid">
         <div className="input-stack">
-          <Panel icon={<KeyRound />} title="1. OpenAI access">
-            {hasWorkerOpenAiKey ? (
+          <Panel icon={<Server />} title="1. Cloudflare Worker">
+            {hasConfiguredWorkerUrl && !isEditingWorkerUrl ? (
               <div className="config-summary">
                 <BadgeCheck aria-hidden="true" />
                 <div>
-                  <strong>OpenAI key is configured</strong>
-                  <span>The Cloudflare Worker will handle analysis. No personal key is needed here.</span>
+                  <strong>Worker URL loaded</strong>
+                  <span>{formatWorkerStatus(workerStatus, workerStatusDetail)}</span>
                 </div>
+                <button className="text-action" type="button" onClick={() => setIsEditingWorkerUrl(true)}>
+                  Change
+                </button>
               </div>
-            ) : null}
-            {shouldShowKeyInput ? (
-              <label className={hasWorkerOpenAiKey ? "fallback-muted" : ""}>
-                Personal API key
-                <input
-                  value={apiKey}
-                  disabled={hasWorkerOpenAiKey && !showPersonalKey}
-                  onChange={(event) => saveKey(event.target.value)}
-                  type="password"
-                  autoComplete="off"
-                  placeholder="sk-..."
-                />
-              </label>
-            ) : null}
-            {hasWorkerOpenAiKey && !showPersonalKey ? (
-              <button className="text-action" type="button" onClick={() => setShowPersonalKey(true)}>
-                Use a personal key instead
-              </button>
-            ) : null}
+            ) : (
+              <>
+                <label>
+                  Cloudflare Worker URL
+                  <input
+                    value={workerUrl}
+                    onChange={(event) => saveWorkerUrl(event.target.value)}
+                    type="url"
+                    placeholder="https://cv-job-tailor-reader.your-account.workers.dev"
+                  />
+                </label>
+                {DEFAULT_WORKER_URL && workerUrl !== DEFAULT_WORKER_URL ? (
+                  <button className="text-action" type="button" onClick={resetWorkerUrl}>
+                    Use deployed Worker URL
+                  </button>
+                ) : null}
+                <p className="hint">{formatWorkerStatus(workerStatus, workerStatusDetail)}</p>
+              </>
+            )}
             <p className="hint">
-              Personal keys stay only in this browser session. The shared key, when configured, stays inside Cloudflare.
+              The Worker holds the Anthropic API key, reads career pages that block GitHub Pages, and proxies employer logos for the PDF. The app cannot analyse a CV without it.
             </p>
           </Panel>
 
@@ -336,36 +333,6 @@ export function App() {
           </Panel>
 
           <Panel icon={<Palette />} title="4. Employer brand">
-            {hasConfiguredWorkerUrl && !isEditingWorkerUrl ? (
-              <div className="config-summary">
-                <BadgeCheck aria-hidden="true" />
-                <div>
-                  <strong>Worker URL loaded</strong>
-                  <span>{formatWorkerStatus(workerStatus, workerStatusDetail)}</span>
-                </div>
-                <button className="text-action" type="button" onClick={() => setIsEditingWorkerUrl(true)}>
-                  Change
-                </button>
-              </div>
-            ) : (
-              <>
-                <label>
-                  Cloudflare Worker URL
-                  <input
-                    value={workerUrl}
-                    onChange={(event) => saveWorkerUrl(event.target.value)}
-                    type="url"
-                    placeholder="https://cv-job-tailor-reader.your-account.workers.dev"
-                  />
-                </label>
-                {DEFAULT_WORKER_URL && workerUrl !== DEFAULT_WORKER_URL ? (
-                  <button className="text-action" type="button" onClick={resetWorkerUrl}>
-                    Use deployed Worker URL
-                  </button>
-                ) : null}
-                <p className="hint">{formatWorkerStatus(workerStatus, workerStatusDetail)}</p>
-              </>
-            )}
             <label>
               Employer website
               <input
@@ -588,15 +555,15 @@ function formatWorkerStatus(status: WorkerStatus, detail = ""): string {
     return "Checking the configured Worker...";
   }
   if (status === "configured") {
-    return "Website reading and shared OpenAI analysis are ready.";
+    return "Worker reachable. Anthropic key present. Ready to analyse.";
   }
   if (status === "missing-key") {
-    return `Website reading is ready, but the Worker is missing its OpenAI key secret. ${detail}`.trim();
+    return `Worker reachable, but the ANTHROPIC_API_KEY secret is not configured. ${detail}`.trim();
   }
   if (status === "unreachable") {
     return `The Worker could not be reached from this browser. ${detail}`.trim();
   }
-  return "Optional website reader used when employer pages block GitHub Pages.";
+  return "Add the Worker URL to enable analysis, website reading, and brand extraction.";
 }
 
 function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
@@ -616,15 +583,15 @@ function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
         <h2>Evidence review</h2>
       </div>
       <div className="skill-list">
-        {analysis.skills.map((skill) => (
-          <span key={`${skill.priority}-${skill.name}`} className={`skill skill-${skill.priority}`}>
+        {analysis.skills.map((skill, index) => (
+          <span key={index} className={`skill skill-${skill.priority}`}>
             {skill.name}
           </span>
         ))}
       </div>
       <div className="evidence-list">
-        {analysis.tailoredCv.evidenceMatches.map((match) => (
-          <article key={`${match.skill}-${match.cvEvidence}`} className="evidence-item">
+        {analysis.tailoredCv.evidenceMatches.map((match, index) => (
+          <article key={index} className="evidence-item">
             <strong>{match.skill}</strong>
             <p>{match.cvEvidence}</p>
             <span>{match.confidence}</span>
@@ -635,8 +602,8 @@ function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
         <div className="gap-box">
           <strong>Unsupported gaps</strong>
           <ul>
-            {analysis.tailoredCv.gaps.map((gap) => (
-              <li key={gap}>{gap}</li>
+            {analysis.tailoredCv.gaps.map((gap, index) => (
+              <li key={index}>{gap}</li>
             ))}
           </ul>
         </div>
@@ -694,8 +661,8 @@ function CvPreview({
                   <section>
                     <h3>Skills</h3>
                     <div className="cv-skills">
-                      {cv.skills.map((skill) => (
-                        <span key={skill}>{skill}</span>
+                      {cv.skills.map((skill, index) => (
+                        <span key={index}>{skill}</span>
                       ))}
                     </div>
                   </section>
@@ -704,8 +671,8 @@ function CvPreview({
                   <section>
                     <h3>Education</h3>
                     <ul>
-                      {cv.education.map((item) => (
-                        <li key={item}>{item}</li>
+                      {cv.education.map((item, index) => (
+                        <li key={index}>{item}</li>
                       ))}
                     </ul>
                   </section>
@@ -714,8 +681,8 @@ function CvPreview({
                   <section>
                     <h3>Certifications</h3>
                     <ul>
-                      {cv.certifications.map((item) => (
-                        <li key={item}>{item}</li>
+                      {cv.certifications.map((item, index) => (
+                        <li key={index}>{item}</li>
                       ))}
                     </ul>
                   </section>
@@ -731,8 +698,8 @@ function CvPreview({
                   <section>
                     <h3>Experience</h3>
                     <div className="cv-experience-list">
-                      {cv.experience.map((item) => (
-                        <article className="cv-experience" key={`${item.role}-${item.organisation}-${item.dates}`}>
+                      {cv.experience.map((item, index) => (
+                        <article className="cv-experience" key={index}>
                           <div className="cv-role-row">
                             <strong>{item.role}</strong>
                             <span>{item.dates}</span>
@@ -741,8 +708,8 @@ function CvPreview({
                             {[item.organisation, item.location].filter(Boolean).join(" / ")}
                           </p>
                           <ul>
-                            {item.bullets.map((bullet) => (
-                              <li key={bullet}>{bullet}</li>
+                            {item.bullets.map((bullet, bulletIndex) => (
+                              <li key={bulletIndex}>{bullet}</li>
                             ))}
                           </ul>
                         </article>
@@ -750,12 +717,12 @@ function CvPreview({
                     </div>
                   </section>
                 ) : null}
-                {cv.additionalSections.map((section) => (
-                  <section key={section.title}>
+                {cv.additionalSections.map((section, sectionIndex) => (
+                  <section key={sectionIndex}>
                     <h3>{section.title}</h3>
                     <ul>
-                      {section.items.map((item) => (
-                        <li key={item}>{item}</li>
+                      {section.items.map((item, itemIndex) => (
+                        <li key={itemIndex}>{item}</li>
                       ))}
                     </ul>
                   </section>
