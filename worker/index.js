@@ -1,7 +1,9 @@
 // Worker secrets (set via `wrangler secret put` or the deploy workflow):
-//   OPENAI_API_KEY         — required for POST /analyse
-//   ANALYSE_SHARED_SECRET  — optional; if set, /analyse requires Bearer auth
-//   JINA_API_KEY           — optional; lifts r.jina.ai shared-IP rate limit
+//   OPENAI_API_KEY                 — required for POST /analyse and POST /design-cv-html
+//   ANALYSE_SHARED_SECRET          — optional; if set, /analyse, /design-cv-html, /render-pdf require Bearer auth
+//   JINA_API_KEY                   — optional; lifts r.jina.ai shared-IP rate limit
+//   CF_ACCOUNT_ID                  — required for POST /render-pdf (Cloudflare account id)
+//   CF_BROWSER_RENDERING_TOKEN     — required for POST /render-pdf (Browser Rendering API token)
 
 const ALLOWED_ORIGINS = new Set([
   "https://steverowley.github.io",
@@ -16,10 +18,13 @@ const MAX_STYLESHEET_FILES = 6;
 const MAX_STYLESHEET_BYTES = 600_000;
 const MAX_REPORTED_COLORS = 400;
 const MAX_REPORTED_FONTS = 20;
+const MAX_GENERATED_HTML_BYTES = 200_000;
+const MAX_STRUCTURED_CV_BYTES = 60_000;
 
 const MODEL = "gpt-5";
-const DESIGN_MODEL = "gpt-4o";
+const HTML_DESIGN_MODEL = "gpt-5";
 const MICROLINK_ENDPOINT = "https://api.microlink.io/";
+const BROWSER_RENDERING_BASE = "https://api.cloudflare.com/client/v4/accounts";
 
 const SYSTEM_PROMPT = `You are a senior CV writer producing a tailored, single-document CV for one specific job application. Your output is rendered into a branded PDF, so length, tone, and structure matter as much as content.
 
@@ -60,19 +65,58 @@ OUTPUT EXPECTATIONS
 - Target one strong page; spill to two pages only if senior-experience depth justifies it.
 - The exact JSON schema is enforced. Field descriptions inside the schema repeat these targets — follow them.`;
 
-const DESIGN_SYSTEM_PROMPT = [
-  "You design CV documents that visually echo a specific employer's brand.",
-  "You receive a screenshot of the employer's homepage and a few extracted brand signals (colours, fonts, name).",
-  "You return a structured DesignSpec that another program will render into a CV.",
-  "Read the screenshot like a designer: notice typography (serif vs sans, display vs neutral, weight, case, tracking), layout density, geometry (sharp vs round corners, the role of accent bars and rules), colour usage rules (where the primary appears vs the accent), and overall mood (editorial, corporate-classic, brutalist-minimal, technical-monospace, premium-quiet, playful, etc.).",
-  "Choose the archetype that best matches the employer's vibe — do not default to one:",
-  "- editorial: narrow single column, large display heading, generous margins, thin rules, refined serif or modern sans",
-  "- sidebar-classic: two-column with sidebar; structured, dense, corporate or institutional",
-  "- feature-band: full-bleed coloured hero band with logo and name in white; bold, brand-forward, modern",
-  "- monolith: single column, minimal chrome, lots of whitespace, no accent bar, very quiet",
-  "Pick typography, geometry, colour roles, hero treatment, section label style and sidebar position so the CV would feel of-a-piece with the employer's homepage.",
-  "Never invent colours: use the extracted brand colours and their tonal variants. Ensure the text colour reads against the page background.",
-];
+const HTML_DESIGN_SYSTEM_PROMPT = `You are a senior brand designer producing a print-ready CV as a single HTML document. The document will be rendered to PDF by headless Chromium, then downloaded by the candidate. You will receive:
+- A structured CV (already verified, evidence-only — every fact in there has been checked).
+- The employer's brand signals (name, primary/accent/background/text colours, font hints, logo as a data URL, palette).
+- A screenshot of the employer's homepage so you can read their visual identity directly.
+
+Your job: produce one self-contained HTML document that presents the CV as if the employer's own in-house design team had laid it out — typography, layout, colour usage, geometry, and rhythm should feel of-a-piece with their homepage.
+
+HARD CONSTRAINTS — the renderer will reject HTML that violates these.
+
+PDF / PAGE FORMAT
+- A4 PORTRAIT only. The PDF download must be vertical. Page size is exactly 210mm × 297mm.
+- In the <style> block, declare \`@page { size: A4 portrait; margin: 0; }\`.
+- Wrap each printable page in a \`<section class="page">\` element sized exactly \`width: 210mm; height: 297mm; page-break-after: always;\` (last one can be \`page-break-after: auto;\`).
+- The content area inside each .page must stay within the page — no element may extend beyond \`210mm\` wide or push content past \`297mm\` tall. No horizontal scrolling. No landscape orientation. No rotated content.
+- Use \`print-color-adjust: exact; -webkit-print-color-adjust: exact;\` on the body so brand backgrounds render.
+- Aim for one strong page. Spill to a second .page only when senior-experience depth genuinely justifies it. Never produce more than two pages.
+
+DOCUMENT STRUCTURE
+- Output exactly one HTML document beginning with \`<!DOCTYPE html>\`.
+- Exactly one \`<style>\` block inside \`<head>\`. All CSS lives there. No external stylesheets except a single \`@import url(...)\` to fonts.googleapis.com if you need a brand font.
+- No JavaScript anywhere: no \`<script>\` tags, no \`on*=\` event handler attributes, no \`javascript:\` URLs.
+- No \`<iframe>\`, \`<object>\`, \`<embed>\`, \`<form>\`, \`<input>\`, or \`<button>\`.
+- No external images. The only image you may embed is the supplied logo data URL — use it inline as \`<img src="data:image/...">\`.
+- Document under 180 KB total. Keep CSS lean.
+
+BRAND FIDELITY
+- Use the supplied brand colours exactly — do not invent new ones. You may darken/lighten them for surfaces, dividers, and muted text.
+- Read the homepage screenshot like a designer: typography (serif/sans/display, weight, case, tracking), density, geometry (sharp vs rounded, the role of accent bars and rules), where colour is used, mood (editorial, brutalist-tech, premium-quiet, corporate-classic, playful, etc.).
+- Choose layout, typography, and colour usage so the CV would look at home on that employer's homepage. You are free to invent any layout — single column, sidebar, hero band, magazine grid, monolith — as long as it serves the brand and fits A4 portrait.
+- If you use a Google Font, pick one that matches the employer's typographic feel (serif vs sans, neutral vs display, weight).
+
+CONTENT FIDELITY (evidence-only)
+- Copy CV content verbatim from the structured input. Do not invent skills, dates, employers, metrics, or qualifications.
+- Include every section present in the structured CV that has content: name, contact lines, headline, profile, skills, experience (reverse-chronological), education, certifications, additionalSections.
+- Lead the document with the candidate's name and headline; place the logo and employer wordmark prominently if you have them.
+- Within each experience role, preserve the bullets verbatim and in the order given.
+
+OUTPUT FORMAT
+- Return JSON of exact shape { "html": "<!DOCTYPE html>..." }. The html field contains the full document as one string. Nothing else.`;
+
+const HTML_DESIGN_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["html"],
+  properties: {
+    html: {
+      type: "string",
+      description:
+        "A complete, self-contained HTML document beginning with <!DOCTYPE html>. Single <style> block, no JavaScript, A4 portrait @page rules, brand colours and supplied logo embedded. Under 180 KB. Each .page element sized exactly 210mm × 297mm. Maximum two pages.",
+    },
+  },
+};
 
 const ANALYSIS_SCHEMA = {
   type: "object",
@@ -273,85 +317,6 @@ const ANALYSIS_SCHEMA = {
   },
 };
 
-const DESIGN_SPEC_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  required: ["archetype", "mood", "typography", "geometry", "color", "hero", "sectionLabel", "sidebar"],
-  properties: {
-    archetype: {
-      type: "string",
-      enum: ["editorial", "sidebar-classic", "feature-band", "monolith"],
-    },
-    mood: { type: "string" },
-    typography: {
-      type: "object",
-      additionalProperties: false,
-      required: [
-        "headingFont",
-        "headingKind",
-        "headingWeight",
-        "headingCase",
-        "headingTracking",
-        "bodyFont",
-        "bodyKind",
-        "density",
-        "headlineSize",
-      ],
-      properties: {
-        headingFont: { type: "string" },
-        headingKind: { type: "string", enum: ["serif", "sans", "mono", "display-serif"] },
-        headingWeight: {
-          type: "string",
-          enum: ["regular", "medium", "semibold", "bold", "black"],
-        },
-        headingCase: { type: "string", enum: ["default", "upper", "title"] },
-        headingTracking: { type: "string", enum: ["tight", "normal", "wide", "ultra"] },
-        bodyFont: { type: "string" },
-        bodyKind: { type: "string", enum: ["serif", "sans", "mono", "display-serif"] },
-        density: { type: "string", enum: ["compact", "comfortable", "expansive"] },
-        headlineSize: { type: "string", enum: ["modest", "large", "display"] },
-      },
-    },
-    geometry: {
-      type: "object",
-      additionalProperties: false,
-      required: ["corner", "divider", "bullet"],
-      properties: {
-        corner: { type: "string", enum: ["sharp", "soft", "round", "pill"] },
-        divider: { type: "string", enum: ["rule", "double-rule", "block", "none"] },
-        bullet: { type: "string", enum: ["dot", "dash", "square", "arrow", "number"] },
-      },
-    },
-    color: {
-      type: "object",
-      additionalProperties: false,
-      required: ["pageBackground", "surface", "primary", "accent", "text", "muted"],
-      properties: {
-        pageBackground: { type: "string" },
-        surface: { type: "string" },
-        primary: { type: "string" },
-        accent: { type: "string" },
-        text: { type: "string" },
-        muted: { type: "string" },
-      },
-    },
-    hero: {
-      type: "object",
-      additionalProperties: false,
-      required: ["accentBar", "showLogo"],
-      properties: {
-        accentBar: { type: "string", enum: ["top-thick", "side-thick", "underline", "none"] },
-        showLogo: { type: "boolean" },
-      },
-    },
-    sectionLabel: {
-      type: "string",
-      enum: ["uppercase-tracked", "title-case", "underlined", "numbered", "block-tag"],
-    },
-    sidebar: { type: "string", enum: ["left", "right", "none"] },
-  },
-};
-
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("origin") || "";
@@ -372,6 +337,7 @@ export default {
           hasOpenAiKey: Boolean(env.OPENAI_API_KEY),
           requiresSharedSecret: Boolean(env.ANALYSE_SHARED_SECRET),
           hasJinaKey: Boolean(env.JINA_API_KEY),
+          hasBrowserRendering: Boolean(env.CF_ACCOUNT_ID && env.CF_BROWSER_RENDERING_TOKEN),
         },
         200,
         corsHeaders,
@@ -386,8 +352,12 @@ export default {
       return analyseWithOpenAI(request, env, corsHeaders);
     }
 
-    if (url.pathname === "/design" && request.method === "POST") {
-      return designWithOpenAI(request, env, corsHeaders);
+    if (url.pathname === "/design-cv-html" && request.method === "POST") {
+      return designCvHtml(request, env, corsHeaders);
+    }
+
+    if (url.pathname === "/render-pdf" && request.method === "POST") {
+      return renderPdf(request, env, corsHeaders);
     }
 
     if (url.pathname === "/proxy-image" && request.method === "GET") {
@@ -399,7 +369,10 @@ export default {
     }
 
     return json(
-      { error: "Use GET /status, POST /read, POST /analyse, POST /design, or GET /proxy-image." },
+      {
+        error:
+          "Use GET /status, POST /read, POST /analyse, POST /design-cv-html, POST /render-pdf, or GET /proxy-image.",
+      },
       404,
       corsHeaders,
     );
@@ -578,7 +551,7 @@ async function analyseWithOpenAI(request, env, corsHeaders) {
   return json({ analysis }, 200, corsHeaders);
 }
 
-async function designWithOpenAI(request, env, corsHeaders) {
+async function designCvHtml(request, env, corsHeaders) {
   if (!env.OPENAI_API_KEY) {
     return json({ error: "The Worker is missing its OPENAI_API_KEY secret." }, 500, corsHeaders);
   }
@@ -598,52 +571,76 @@ async function designWithOpenAI(request, env, corsHeaders) {
     return json({ error: "Request body must be JSON." }, 400, corsHeaders);
   }
 
-  const websiteUrl = typeof payload?.websiteUrl === "string" ? payload.websiteUrl.trim() : "";
-  if (!websiteUrl) {
-    return json({ error: "websiteUrl is required." }, 400, corsHeaders);
+  const structuredCv = payload?.structuredCv;
+  if (!structuredCv || typeof structuredCv !== "object") {
+    return json({ error: "structuredCv is required." }, 400, corsHeaders);
   }
-  let validatedUrl;
-  try {
-    validatedUrl = validateTargetUrl(websiteUrl);
-  } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Invalid websiteUrl." }, 400, corsHeaders);
+  const structuredCvJson = JSON.stringify(structuredCv);
+  if (structuredCvJson.length > MAX_STRUCTURED_CV_BYTES) {
+    return json({ error: "structuredCv is too large." }, 413, corsHeaders);
   }
 
   const brand = sanitizeBrandHint(payload?.brand);
-  const htmlExcerpt = typeof payload?.htmlExcerpt === "string" ? payload.htmlExcerpt.slice(0, 8_000) : "";
+  const jobTitle = typeof payload?.jobTitle === "string" ? payload.jobTitle.slice(0, 200) : "";
+  const employerName = typeof payload?.employerName === "string" ? payload.employerName.slice(0, 200) : "";
+  const websiteUrl = typeof payload?.employerHomepageUrl === "string" ? payload.employerHomepageUrl.trim() : "";
 
-  let screenshot;
-  try {
-    screenshot = await fetchMicrolinkScreenshot(validatedUrl);
-  } catch (error) {
-    return json(
-      {
-        error: `The employer homepage screenshot could not be captured. ${
-          error instanceof Error ? error.message : ""
-        }`.trim(),
-      },
-      502,
-      corsHeaders,
-    );
+  let screenshotUrl = "";
+  if (websiteUrl) {
+    let validatedUrl;
+    try {
+      validatedUrl = validateTargetUrl(websiteUrl);
+    } catch (error) {
+      return json({ error: error instanceof Error ? error.message : "Invalid employerHomepageUrl." }, 400, corsHeaders);
+    }
+    try {
+      const screenshot = await fetchMicrolinkScreenshot(validatedUrl);
+      screenshotUrl = screenshot.url;
+    } catch (error) {
+      // Soft-fail: design without the screenshot if Microlink is down.
+      screenshotUrl = "";
+    }
+  }
+
+  let logoDataUrl = "";
+  if (typeof payload?.logoUrl === "string" && payload.logoUrl.trim()) {
+    try {
+      logoDataUrl = await fetchLogoAsDataUrl(payload.logoUrl.trim());
+    } catch {
+      logoDataUrl = "";
+    }
   }
 
   const userContent = [
-    { type: "input_text", text: buildDesignPromptText(websiteUrl, brand, htmlExcerpt) },
-    { type: "input_image", image_url: screenshot.url },
+    {
+      type: "input_text",
+      text: buildHtmlDesignPromptText({
+        structuredCvJson,
+        brand,
+        jobTitle,
+        employerName,
+        websiteUrl,
+        logoDataUrl,
+      }),
+    },
   ];
+  if (screenshotUrl) {
+    userContent.push({ type: "input_image", image_url: screenshotUrl });
+  }
 
   const body = {
-    model: DESIGN_MODEL,
+    model: HTML_DESIGN_MODEL,
     input: [
-      { role: "system", content: DESIGN_SYSTEM_PROMPT.join("\n") },
+      { role: "system", content: HTML_DESIGN_SYSTEM_PROMPT },
       { role: "user", content: userContent },
     ],
+    reasoning: { effort: "medium" },
     text: {
       format: {
         type: "json_schema",
-        name: "cv_design_spec",
+        name: "cv_html_design",
         strict: true,
-        schema: DESIGN_SPEC_SCHEMA,
+        schema: HTML_DESIGN_SCHEMA,
       },
     },
   };
@@ -670,39 +667,210 @@ async function designWithOpenAI(request, env, corsHeaders) {
     return json({ error: "OpenAI returned non-JSON." }, 502, corsHeaders);
   }
 
-  const designSpec = extractOpenAIStructuredAnalysis(parsed);
-  if (!designSpec) {
-    return json({ error: "OpenAI returned no structured design spec." }, 502, corsHeaders);
+  const designed = extractOpenAIStructuredAnalysis(parsed);
+  if (!designed || typeof designed.html !== "string") {
+    return json({ error: "OpenAI returned no HTML document." }, 502, corsHeaders);
   }
 
-  return json(
-    {
-      designSpec,
-      screenshotUrl: screenshot.url,
-    },
-    200,
-    corsHeaders,
-  );
+  let safeHtml;
+  try {
+    safeHtml = sanitizeGeneratedHtml(designed.html);
+  } catch (error) {
+    return json(
+      { error: `The generated HTML failed safety checks: ${error instanceof Error ? error.message : "unknown"}` },
+      502,
+      corsHeaders,
+    );
+  }
+
+  return json({ html: safeHtml, screenshotUrl }, 200, corsHeaders);
 }
 
-function buildDesignPromptText(websiteUrl, brand, htmlExcerpt) {
-  const lines = [
-    `Employer website: ${websiteUrl}`,
-    `Employer name: ${brand.companyName || "Unknown"}`,
-    `Extracted primary colour: ${brand.primaryColor || "Unknown"}`,
-    `Extracted accent colour: ${brand.accentColor || "Unknown"}`,
-    `Extracted background colour: ${brand.backgroundColor || "Unknown"}`,
-    `Extracted body font hint: ${brand.fontFamily || "Unknown"}`,
-    `Extracted palette: ${(brand.palette || []).join(", ") || "Unknown"}`,
-    "",
-    "Use the screenshot to choose an archetype and design parameters that look like they belong to this employer.",
-    "Reuse the extracted brand colours (and tonal variants of them). Pick a primary and accent that mirror how the homepage uses them. Choose body and heading font kinds (serif/sans/mono/display-serif) that match the homepage's typographic feel — even if the named font is not available, the kind is what matters.",
-    "Ensure the chosen text colour reads against the chosen page background.",
-  ];
-  if (htmlExcerpt) {
-    lines.push("", "Homepage HTML excerpt (truncated):", htmlExcerpt);
+async function renderPdf(request, env, corsHeaders) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_BROWSER_RENDERING_TOKEN) {
+    return json(
+      {
+        error:
+          "The Worker is missing Browser Rendering secrets (CF_ACCOUNT_ID and CF_BROWSER_RENDERING_TOKEN). PDF export is not configured.",
+      },
+      503,
+      corsHeaders,
+    );
   }
+
+  if (env.ANALYSE_SHARED_SECRET) {
+    const auth = request.headers.get("authorization") || "";
+    const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+    if (!timingSafeEqual(provided, env.ANALYSE_SHARED_SECRET)) {
+      return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
+    }
+  }
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: "Request body must be JSON." }, 400, corsHeaders);
+  }
+
+  let safeHtml;
+  try {
+    safeHtml = sanitizeGeneratedHtml(payload?.html);
+  } catch (error) {
+    return json(
+      { error: error instanceof Error ? error.message : "Invalid HTML." },
+      400,
+      corsHeaders,
+    );
+  }
+
+  const fileName =
+    typeof payload?.fileName === "string" && /^[\w.\- ]{1,120}$/.test(payload.fileName)
+      ? payload.fileName
+      : "tailored-cv.pdf";
+
+  const endpoint = `${BROWSER_RENDERING_BASE}/${env.CF_ACCOUNT_ID}/browser-rendering/pdf`;
+  const upstream = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.CF_BROWSER_RENDERING_TOKEN}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      html: safeHtml,
+      viewport: { width: 794, height: 1123 },
+      addStyleTag: [],
+      pdfOptions: {
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: true,
+        margin: { top: "0mm", bottom: "0mm", left: "0mm", right: "0mm" },
+      },
+    }),
+  });
+
+  if (!upstream.ok) {
+    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
+    return json(
+      { error: `Browser Rendering returned ${upstream.status}.${detail ? ` ${detail}` : ""}` },
+      502,
+      corsHeaders,
+    );
+  }
+
+  const contentType = upstream.headers.get("content-type") || "";
+  if (!contentType.includes("application/pdf")) {
+    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
+    return json(
+      { error: `Browser Rendering returned non-PDF content (${contentType || "unknown"}).${detail ? ` ${detail}` : ""}` },
+      502,
+      corsHeaders,
+    );
+  }
+
+  return new Response(upstream.body, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "content-type": "application/pdf",
+      "content-disposition": `attachment; filename="${fileName}"`,
+      "cache-control": "no-store",
+    },
+  });
+}
+
+function buildHtmlDesignPromptText({ structuredCvJson, brand, jobTitle, employerName, websiteUrl, logoDataUrl }) {
+  const lines = [
+    `Employer name: ${employerName || brand.companyName || "Unknown"}`,
+    `Employer website: ${websiteUrl || "Unknown"}`,
+    `Job title: ${jobTitle || "Unknown"}`,
+    "",
+    "Brand signals:",
+    `- Primary colour: ${brand.primaryColor || "Unknown"}`,
+    `- Accent colour: ${brand.accentColor || "Unknown"}`,
+    `- Background colour: ${brand.backgroundColor || "Unknown"}`,
+    `- Text colour: ${brand.textColor || "Unknown"}`,
+    `- Body font hint: ${brand.fontFamily || "Unknown"}`,
+    `- Palette: ${(brand.palette || []).join(", ") || "Unknown"}`,
+    `- Logo: ${logoDataUrl ? "supplied (embed inline as <img src=\"<logo>\">)" : "not available"}`,
+    "",
+    "Structured CV (JSON — copy content verbatim, do not invent):",
+    structuredCvJson,
+  ];
+  if (logoDataUrl) {
+    lines.push("", "Logo data URL (use this exact string as the <img src>):", logoDataUrl);
+  }
+  lines.push(
+    "",
+    "Produce one self-contained HTML document per the constraints in the system prompt. Remember: A4 portrait, vertical layout, each .page exactly 210mm × 297mm, no JavaScript, brand colours used exactly.",
+  );
   return lines.join("\n");
+}
+
+async function fetchLogoAsDataUrl(logoUrl) {
+  let parsed;
+  try {
+    parsed = new URL(logoUrl);
+  } catch {
+    throw new Error("Invalid logo URL.");
+  }
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Logo URL must be http or https.");
+  }
+  const upstream = await fetch(parsed.toString(), {
+    headers: {
+      ...browserLikeHeaders(parsed.toString()),
+      accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+    },
+    redirect: "follow",
+  });
+  if (!upstream.ok) {
+    throw new Error(`Logo fetch failed with ${upstream.status}.`);
+  }
+  const contentType = upstream.headers.get("content-type") || "";
+  if (!contentType.startsWith("image/")) {
+    throw new Error(`Unsupported logo content type: ${contentType || "unknown"}.`);
+  }
+  const buffer = await upstream.arrayBuffer();
+  if (buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error("Logo image is too large to embed.");
+  }
+  const base64 = bufferToBase64(buffer);
+  return `data:${contentType};base64,${base64}`;
+}
+
+function bufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function sanitizeGeneratedHtml(value) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("html must be a non-empty string.");
+  }
+  if (value.length > MAX_GENERATED_HTML_BYTES) {
+    throw new Error(`html is larger than ${MAX_GENERATED_HTML_BYTES} bytes.`);
+  }
+  const trimmed = value.trim();
+  if (!/^<!doctype html/i.test(trimmed)) {
+    throw new Error("html must start with <!DOCTYPE html>.");
+  }
+  const lowered = trimmed.toLowerCase();
+  const forbiddenSubstrings = ["<script", "</script", "<iframe", "<object", "<embed", "javascript:", "vbscript:"];
+  for (const needle of forbiddenSubstrings) {
+    if (lowered.includes(needle)) {
+      throw new Error(`html contains forbidden token "${needle}".`);
+    }
+  }
+  if (/\son[a-z]+\s*=/i.test(trimmed)) {
+    throw new Error("html contains an event-handler attribute (on*=).");
+  }
+  return trimmed;
 }
 
 function sanitizeBrandHint(value) {

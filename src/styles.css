@@ -1031,11 +1031,31 @@ textarea {
   }
 }
 
-.design-hint {
-  margin-top: 6px;
-  color: var(--text-soft);
+.cv-html-frame {
+  background: #2c2c2c;
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  display: flex;
+  justify-content: center;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
 }
 
+.cv-html-iframe {
+  background: #ffffff;
+  border: 0;
+  width: 100%;
+  max-width: 794px;
+  aspect-ratio: 210 / 297;
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.45);
+  border-radius: 2px;
+  display: block;
+}
+
+.review-stack-fullscreen .cv-html-iframe {
+  max-width: min(900px, calc((100vh - 160px) * 210 / 297));
+  width: 100%;
+}
 
 @media (max-width: 980px) {
   .app-shell {

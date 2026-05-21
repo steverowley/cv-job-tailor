@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -15,11 +15,10 @@ import {
 } from "lucide-react";
 import { extractCvText, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
-import { DesignReadError, defaultDesignSpec, readEmployerDesignSpec } from "./designReader";
 import { analyseCvAgainstJob } from "./analysis";
-import { exportTailoredCvPdf } from "./pdfExport";
-import { CvPreview } from "./CvPreview";
-import { AnalysisResult, BrandSettings, DesignSpec } from "./types";
+import { CvDesignerError, designCvHtml, downloadBlob, renderCvPdf } from "./cvDesigner";
+import { CvHtmlPreview } from "./CvHtmlPreview";
+import { AnalysisResult, BrandSettings } from "./types";
 
 type Status = "idle" | "reading" | "designing" | "analysing" | "ready" | "exporting" | "error";
 type WorkerStatus = "idle" | "checking" | "configured" | "missing-key" | "unreachable";
@@ -30,7 +29,6 @@ const DEFAULT_BRAND: BrandSettings = {
   accentColor: "#d3a84f",
   fontFamily: "Georgia",
 };
-const DEFAULT_DESIGN_SPEC: DesignSpec = defaultDesignSpec(DEFAULT_BRAND);
 
 const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
 const ANALYSE_SHARED_SECRET = import.meta.env.VITE_ANALYSE_SHARED_SECRET || "";
@@ -50,11 +48,7 @@ export function App() {
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
   const [brandGenerated, setBrandGenerated] = useState(false);
-  const [designSpec, setDesignSpec] = useState<DesignSpec>(DEFAULT_DESIGN_SPEC);
-  const [designGenerated, setDesignGenerated] = useState(false);
-  const [designMessage, setDesignMessage] = useState(
-    "Once you generate a brand, the CV layout adapts to the employer's homepage.",
-  );
+  const [designedHtml, setDesignedHtml] = useState<string>("");
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
   const [status, setStatus] = useState<Status>("idle");
@@ -67,7 +61,6 @@ export function App() {
   const [showBrandFallback, setShowBrandFallback] = useState(false);
   const [showReadyOverlay, setShowReadyOverlay] = useState(false);
   const [isOutputFullscreen, setIsOutputFullscreen] = useState(false);
-  const pdfRef = useRef<HTMLDivElement>(null);
 
   const canAnalyse = useMemo(
     () => workerStatus === "configured" && (jobUrl.trim() || jobText.trim()) && cvText.trim(),
@@ -184,6 +177,7 @@ export function App() {
       setStatus("analysing");
       setMessage("Reading the job details and comparing them with the CV...");
       setReadDiagnostics([]);
+      setDesignedHtml("");
       const job = await readJobDescription(jobUrl, jobText, workerUrl);
       if (job.diagnostics?.length) {
         setReadDiagnostics(job.diagnostics);
@@ -200,10 +194,6 @@ export function App() {
         setBrandGenerated(true);
       }
 
-      if (!designGenerated) {
-        setDesignSpec(defaultDesignSpec(workingBrand));
-      }
-
       const result = await analyseCvAgainstJob({
         workerUrl,
         sharedSecret: ANALYSE_SHARED_SECRET,
@@ -213,8 +203,32 @@ export function App() {
       });
 
       setAnalysis(result);
+      setMessage(job.warning || "Designing an on-brand CV from the employer's homepage...");
+
+      setStatus("designing");
+      try {
+        const { html } = await designCvHtml({
+          workerUrl,
+          sharedSecret: ANALYSE_SHARED_SECRET,
+          structuredCv: result.tailoredCv.fullCv,
+          brand: workingBrand,
+          employerHomepageUrl: employerWebsiteUrl.trim(),
+          jobTitle: result.jobTitle,
+          employerName: result.employerName || workingBrand.companyName,
+        });
+        setDesignedHtml(html);
+      } catch (designError) {
+        setMessage(
+          `Analysis succeeded but the on-brand CV design failed. ${
+            designError instanceof Error ? designError.message : ""
+          }`.trim(),
+        );
+        setStatus("error");
+        return;
+      }
+
       setActiveOutput("cv");
-      setMessage(job.warning || "Analysis complete. Review the evidence before exporting.");
+      setMessage("Analysis complete. Preview the CV or download the PDF.");
       setStatus("ready");
       setShowReadyOverlay(true);
     } catch (error) {
@@ -237,16 +251,14 @@ export function App() {
       setBrand(generatedBrand);
       setBrandGenerated(true);
       setShowBrandFallback(false);
-      setBrandMessage("Brand generated. You can still fine-tune it before export.");
+      setBrandMessage("Brand generated. The CV will be designed on this brand when you analyse.");
       setStatus("idle");
-      void designForEmployer(generatedBrand, employerWebsiteUrl.trim());
     } catch (error) {
       if (error instanceof BrandReadError) {
         const fallback = { ...brand, ...error.fallbackBrand };
         setBrand(fallback);
         setBrandGenerated(true);
         setReadDiagnostics(error.diagnostics);
-        void designForEmployer(fallback, employerWebsiteUrl.trim());
       } else {
         setReadDiagnostics(getErrorDiagnostics(error));
       }
@@ -256,65 +268,31 @@ export function App() {
     }
   }
 
-  async function designForEmployer(forBrand: BrandSettings, websiteUrl: string) {
-    if (!websiteUrl) {
-      const fallback = defaultDesignSpec(forBrand);
-      setDesignSpec(fallback);
-      setDesignGenerated(false);
-      setDesignMessage(
-        "No employer website URL provided, so a default classic layout is used. Add a website URL to design the CV on-brand.",
-      );
-      return;
-    }
-
-    try {
-      setStatus("designing");
-      setDesignMessage("Capturing the employer homepage and designing an on-brand CV layout...");
-      const { designSpec: spec } = await readEmployerDesignSpec({
-        workerUrl,
-        sharedSecret: ANALYSE_SHARED_SECRET,
-        websiteUrl,
-        brand: forBrand,
-      });
-      setDesignSpec(spec);
-      setDesignGenerated(true);
-      setDesignMessage(designSummary(spec));
-      setStatus("idle");
-    } catch (error) {
-      if (error instanceof DesignReadError) {
-        setDesignSpec(error.fallbackSpec);
-      } else {
-        setDesignSpec(defaultDesignSpec(forBrand));
-      }
-      setDesignGenerated(false);
-      setDesignMessage(
-        `On-brand design could not be generated, so a default layout is used. ${
-          error instanceof Error ? error.message : ""
-        }`.trim(),
-      );
-      setStatus("idle");
-    }
-  }
-
   async function exportPdf() {
-    if (!analysis) {
+    if (!analysis || !designedHtml) {
       return;
     }
 
     try {
       setStatus("exporting");
-      setMessage("Preparing the branded PDF...");
-      await exportTailoredCvPdf({
-        analysis,
-        brand,
-        designSpec,
-        filename: `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`,
+      setMessage("Rendering the PDF through Cloudflare Browser Rendering...");
+      const fileName = `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`;
+      const blob = await renderCvPdf({
         workerUrl,
+        sharedSecret: ANALYSE_SHARED_SECRET,
+        html: designedHtml,
+        fileName,
       });
+      downloadBlob(blob, fileName);
       setStatus("ready");
       setMessage("PDF downloaded.");
     } catch (error) {
-      showError(error);
+      if (error instanceof CvDesignerError) {
+        setMessage(error.message);
+        setStatus("error");
+      } else {
+        showError(error);
+      }
     }
   }
 
@@ -451,8 +429,7 @@ export function App() {
               className="brand-action"
               disabled={
                 (!employerWebsiteUrl.trim() && !employerBrandSource.trim()) ||
-                status === "reading" ||
-                status === "designing"
+                status === "reading"
               }
               onClick={generateBrand}
             >
@@ -460,7 +437,6 @@ export function App() {
               {brandGenerated ? "Re-generate brand" : "Generate brand"}
             </button>
             <p className="hint">{brandMessage}</p>
-            <p className="hint design-hint">{designMessage}</p>
             {brandGenerated ? (
               <>
                 <div className="brand-preview">
@@ -474,7 +450,6 @@ export function App() {
                       {[
                         brand.logoUrl ? "Logo found" : "No logo detected",
                         brand.fontFamily || "Default font",
-                        designGenerated ? `Design: ${designSpec.archetype}` : "Default design",
                       ]
                         .filter(Boolean)
                         .join(" / ")}
@@ -605,14 +580,13 @@ export function App() {
           {activeOutput === "review" ? (
             <ReviewPanel analysis={analysis} />
           ) : (
-            <CvPreview
-              analysis={analysis}
-              designSpec={designSpec}
-              logoUrl={brand.logoUrl}
-              companyDisplayName={brand.companyName}
-            />
+            <CvHtmlPreview html={designedHtml} />
           )}
-          <button className="secondary-action" disabled={!analysis || status === "exporting"} onClick={exportPdf}>
+          <button
+            className="secondary-action"
+            disabled={!designedHtml || status === "exporting"}
+            onClick={exportPdf}
+          >
             <Download aria-hidden="true" />
             Download branded PDF
           </button>
@@ -795,16 +769,6 @@ function formatWorkerStatus(status: WorkerStatus, detail = ""): string {
     return `The Worker could not be reached from this browser. ${detail}`.trim();
   }
   return "Add the Worker URL to enable analysis, website reading, and brand extraction.";
-}
-
-function designSummary(spec: DesignSpec): string {
-  const archetypeLabel = {
-    "editorial": "Editorial — narrow column, large display heading",
-    "sidebar-classic": "Sidebar classic — two-column structured layout",
-    "feature-band": "Feature band — full-bleed coloured hero",
-    "monolith": "Monolith — minimal single column",
-  }[spec.archetype];
-  return `${archetypeLabel}. ${spec.mood}`;
 }
 
 function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
