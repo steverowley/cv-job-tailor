@@ -148,6 +148,7 @@ export default {
         {
           hasOpenAiKey: Boolean(env.OPENAI_API_KEY),
           requiresSharedSecret: Boolean(env.ANALYSE_SHARED_SECRET),
+          hasJinaKey: Boolean(env.JINA_API_KEY),
         },
         200,
         corsHeaders,
@@ -167,7 +168,7 @@ export default {
     }
 
     if (url.pathname === "/read" && request.method === "POST") {
-      return readPage(request, corsHeaders);
+      return readPage(request, env, corsHeaders);
     }
 
     return json(
@@ -178,7 +179,7 @@ export default {
   },
 };
 
-async function readPage(request, corsHeaders) {
+async function readPage(request, env, corsHeaders) {
   try {
     const body = await request.json();
     const targetUrl = validateTargetUrl(body?.url);
@@ -195,7 +196,7 @@ async function readPage(request, corsHeaders) {
     if (!response.ok && shouldRetryViaReaderProxy(response.status)) {
       proxyAttempted = true;
       try {
-        const proxied = await fetchViaReaderProxy(targetUrl);
+        const proxied = await fetchViaReaderProxy(targetUrl, env);
         proxyStatus = proxied.status;
         if (proxied.ok) {
           response = proxied;
@@ -209,10 +210,14 @@ async function readPage(request, corsHeaders) {
     }
 
     if (!response.ok) {
+      const hint =
+        proxyAttempted && proxyStatus === 429 && !env.JINA_API_KEY
+          ? " Set a JINA_API_KEY worker secret to lift the shared-IP rate limit."
+          : "";
       const detail = proxyAttempted
         ? `Direct fetch returned ${directStatus}; reader proxy ${
             proxyStatus ? `returned ${proxyStatus}` : "could not be reached"
-          }${proxyError ? ` — ${proxyError}` : ""}.`
+          }${proxyError ? ` — ${proxyError}` : ""}.${hint}`
         : explainUpstreamStatus(directStatus);
       return json(
         {
@@ -499,17 +504,18 @@ function shouldRetryViaReaderProxy(status) {
   return status === 403 || status === 410 || status === 429 || status === 451 || status >= 500;
 }
 
-async function fetchViaReaderProxy(targetUrl) {
+async function fetchViaReaderProxy(targetUrl, env) {
   const endpoint = `https://r.jina.ai/${targetUrl}`;
-  return fetch(endpoint, {
-    headers: {
-      accept: "text/html,application/xhtml+xml,*/*;q=0.8",
-      "x-return-format": "html",
-      "user-agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    },
-    redirect: "follow",
-  });
+  const headers = {
+    accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+    "x-return-format": "html",
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  };
+  if (env?.JINA_API_KEY) {
+    headers.authorization = `Bearer ${env.JINA_API_KEY}`;
+  }
+  return fetch(endpoint, { headers, redirect: "follow" });
 }
 
 function explainUpstreamStatus(status) {
