@@ -85,7 +85,8 @@ PDF / PAGE FORMAT
 - Each .page MUST have inner padding of at least 18mm on all four sides — nothing touches the page edge. Leave at least 12mm of clear space at the bottom of every page so the last line never collides with the boundary. Usable content area is therefore ~174mm × 261mm.
 - The content area inside each .page must stay within the page — no element may extend beyond \`210mm\` wide or push content past \`297mm\` tall. No horizontal scrolling. No landscape orientation. No rotated content.
 - Use \`print-color-adjust: exact; -webkit-print-color-adjust: exact;\` on the body so brand backgrounds render.
-- Prefer two breathing pages over one cramped page. Use one page only if the content fits comfortably with the spacing rules below. Never produce more than two pages.
+- Prefer two breathing pages over one cramped page. Use one page only if the content fits comfortably with the spacing rules below.
+- HARD CAP: never produce more than two .page elements. If the content overflows after the spacing rules, condense — in this order: (a) collapse roles older than 5 years into single-line entries (role, organisation, dates only); (b) keep only the 5 most relevant certifications; (c) keep only the 5 most relevant achievements; (d) drop entire optional sections (Achievements, Languages, etc.) if non-essential; (e) shorten bullets. Never spill to a third page.
 
 DOCUMENT STRUCTURE
 - Output exactly one HTML document beginning with \`<!DOCTYPE html>\`.
@@ -95,11 +96,22 @@ DOCUMENT STRUCTURE
 - No external images. The only image you may embed is the supplied logo data URL — use it inline as \`<img src="data:image/...">\`.
 - Document under 180 KB total. Keep CSS lean.
 
-BRAND FIDELITY
+BRAND FIDELITY — express the brand BOLDLY. A generic Word template tinted with a brand-coloured bullet point is unacceptable output. If the result could be mistaken for a default Microsoft Word CV with a colour swap, you have failed the brief.
+
 - Use the supplied brand colours exactly — do not invent new ones. You may darken/lighten them for surfaces, dividers, and muted text.
 - Read the homepage screenshot like a designer: typography (serif/sans/display, weight, case, tracking), density, geometry (sharp vs rounded, the role of accent bars and rules), where colour is used, mood (editorial, brutalist-tech, premium-quiet, corporate-classic, playful, etc.).
 - Choose layout, typography, and colour usage so the CV would look at home on that employer's homepage. You are free to invent any layout — single column, sidebar, hero band, magazine grid, monolith — as long as it serves the brand and fits A4 portrait.
-- If you use a Google Font, pick one that matches the employer's typographic feel (serif vs sans, neutral vs display, weight).
+- EXPRESS BRAND IN AT LEAST THREE OF THESE WAYS. Tinted bullets and a coloured name alone do not count.
+  1. A coloured field, band, or hero strip — at least 12mm tall — using the primary or accent colour.
+  2. A brand-aligned heading typeface from Google Fonts that echoes the homepage's typographic voice (display serif for editorial, geometric sans for tech, etc.).
+  3. A structural motif that says "this brand": sidebar in the brand colour, vertical side rail, oversized section ordinals, coloured page edge, full-bleed footer, large brand wordmark.
+  4. Coloured surfaces behind key elements (profile summary, contact strip, role headers).
+  5. Brand-coloured numerals/dates/letter-spacing treatments that mirror the homepage's design language.
+- If you use a Google Font, pick one that matches the employer's typographic feel (serif vs sans, neutral vs display, weight). Always declare it via \`@import\` and use it for headings or body, not just decoration.
+
+LOGO RULES — strict
+- If a logo data URL is supplied in the user message, embed it as \`<img src="<exact data URL>">\`. Never reference it by any other URL.
+- If a logo is NOT supplied, do NOT draw a placeholder rectangle, square, or coloured block where a logo would go. Do not include any image element with an empty or guessed src. Lay the page out so the absence of a logo is not visible — use the employer wordmark in branded type instead. A black or coloured square in place of a logo is the single most common failure mode of this task; you must avoid it.
 
 LAYOUT, SPACING, AND TYPOGRAPHY — non-negotiable design rules for a print-ready document. The output usually looks cramped at first attempt; these rules exist to prevent that.
 
@@ -736,7 +748,19 @@ async function designCvHtml(request, env, corsHeaders) {
     );
   }
 
-  return json({ html: safeHtml, screenshotUrl }, 200, corsHeaders);
+  return json(
+    {
+      html: safeHtml,
+      screenshotUrl,
+      inputs: {
+        hadCvLayout: Boolean(cvLayoutDataUrl),
+        hadEmployerScreenshot: Boolean(screenshotUrl),
+        hadLogo: Boolean(logoDataUrl),
+      },
+    },
+    200,
+    corsHeaders,
+  );
 }
 
 function buildHtmlDesignPromptText({

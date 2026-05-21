@@ -16,7 +16,7 @@ import {
 import { extractCvText, extractFirstPageImage, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
 import { analyseCvAgainstJob } from "./analysis";
-import { CvDesignerError, designCvHtml, printCvHtml } from "./cvDesigner";
+import { CvDesignerError, DesignInputs, designCvHtml, printCvHtml } from "./cvDesigner";
 import { CvHtmlPreview } from "./CvHtmlPreview";
 import { AnalysisResult, BrandSettings } from "./types";
 
@@ -50,6 +50,7 @@ export function App() {
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
   const [brandGenerated, setBrandGenerated] = useState(false);
   const [designedHtml, setDesignedHtml] = useState<string>("");
+  const [designInputs, setDesignInputs] = useState<DesignInputs | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
   const [status, setStatus] = useState<Status>("idle");
@@ -184,6 +185,7 @@ export function App() {
       setMessage("Reading the job details and comparing them with the CV...");
       setReadDiagnostics([]);
       setDesignedHtml("");
+      setDesignInputs(null);
       const job = await readJobDescription(jobUrl, jobText, workerUrl);
       if (job.diagnostics?.length) {
         setReadDiagnostics(job.diagnostics);
@@ -213,7 +215,7 @@ export function App() {
 
       setStatus("designing");
       try {
-        const { html } = await designCvHtml({
+        const { html, inputs } = await designCvHtml({
           workerUrl,
           sharedSecret: ANALYSE_SHARED_SECRET,
           structuredCv: result.tailoredCv.fullCv,
@@ -224,6 +226,7 @@ export function App() {
           cvLayoutDataUrl,
         });
         setDesignedHtml(html);
+        setDesignInputs(inputs);
       } catch (designError) {
         setMessage(
           `Analysis succeeded but the on-brand CV design failed. ${
@@ -581,7 +584,10 @@ export function App() {
           {activeOutput === "review" ? (
             <ReviewPanel analysis={analysis} />
           ) : (
-            <CvHtmlPreview html={designedHtml} />
+            <>
+              {designedHtml && designInputs ? <DesignInputsStrip inputs={designInputs} /> : null}
+              <CvHtmlPreview html={designedHtml} />
+            </>
           )}
           <button
             className="secondary-action"
@@ -669,6 +675,27 @@ function ReadyOverlay({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function DesignInputsStrip({ inputs }: { inputs: DesignInputs }) {
+  const items: { label: string; ok: boolean }[] = [
+    { label: "Your CV layout", ok: inputs.hadCvLayout },
+    { label: "Employer screenshot", ok: inputs.hadEmployerScreenshot },
+    { label: "Employer logo", ok: inputs.hadLogo },
+  ];
+  return (
+    <div className="design-inputs-strip" aria-label="Inputs sent to the designer">
+      <span className="design-inputs-strip-label">Inputs sent to designer</span>
+      <ul>
+        {items.map((item) => (
+          <li key={item.label} className={item.ok ? "ok" : "missing"}>
+            <span className="dot" aria-hidden="true" />
+            <span>{item.label}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

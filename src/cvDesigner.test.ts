@@ -40,10 +40,17 @@ describe("designCvHtml", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
-        new Response(JSON.stringify({ html: "<!DOCTYPE html><html></html>", screenshotUrl: "https://s.example/x.png" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({
+            html: "<!DOCTYPE html><html></html>",
+            screenshotUrl: "https://s.example/x.png",
+            inputs: { hadCvLayout: true, hadEmployerScreenshot: true, hadLogo: false },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
       );
 
     const result = await designCvHtml({
@@ -59,6 +66,7 @@ describe("designCvHtml", () => {
 
     expect(result.html).toBe("<!DOCTYPE html><html></html>");
     expect(result.screenshotUrl).toBe("https://s.example/x.png");
+    expect(result.inputs).toEqual({ hadCvLayout: true, hadEmployerScreenshot: true, hadLogo: false });
 
     const [url, init] = fetchSpy.mock.calls[0];
     expect(url).toBe("https://worker.example.com/design-cv-html");

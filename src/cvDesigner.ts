@@ -23,6 +23,12 @@ function authHeaders(sharedSecret?: string): Record<string, string> {
   return headers;
 }
 
+export interface DesignInputs {
+  hadCvLayout: boolean;
+  hadEmployerScreenshot: boolean;
+  hadLogo: boolean;
+}
+
 export async function designCvHtml(params: {
   workerUrl: string;
   sharedSecret?: string;
@@ -32,7 +38,7 @@ export async function designCvHtml(params: {
   jobTitle?: string;
   employerName?: string;
   cvLayoutDataUrl?: string;
-}): Promise<{ html: string; screenshotUrl: string }> {
+}): Promise<{ html: string; screenshotUrl: string; inputs: DesignInputs }> {
   const {
     workerUrl,
     sharedSecret,
@@ -67,7 +73,12 @@ export async function designCvHtml(params: {
   }
 
   const rawText = await response.text();
-  let payload: { html?: string; screenshotUrl?: string; error?: string } = {};
+  let payload: {
+    html?: string;
+    screenshotUrl?: string;
+    error?: string;
+    inputs?: Partial<DesignInputs>;
+  } = {};
   if (rawText) {
     try {
       payload = JSON.parse(rawText);
@@ -84,7 +95,15 @@ export async function designCvHtml(params: {
     throw new CvDesignerError("The Worker did not return HTML.", response.status);
   }
 
-  return { html: payload.html, screenshotUrl: payload.screenshotUrl || "" };
+  return {
+    html: payload.html,
+    screenshotUrl: payload.screenshotUrl || "",
+    inputs: {
+      hadCvLayout: Boolean(payload.inputs?.hadCvLayout),
+      hadEmployerScreenshot: Boolean(payload.inputs?.hadEmployerScreenshot),
+      hadLogo: Boolean(payload.inputs?.hadLogo),
+    },
+  };
 }
 
 export function printCvHtml(html: string, fileName: string): void {
