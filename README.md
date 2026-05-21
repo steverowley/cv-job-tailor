@@ -21,11 +21,11 @@ If a job site blocks the Worker too, paste the job description into the fallback
 
 The Worker code is in `worker/index.js` and is configured by `wrangler.toml`. The Worker exposes:
 
-- `GET /status` — reports whether `ANTHROPIC_API_KEY` is configured.
+- `GET /status` — reports whether `OPENAI_API_KEY`, `ANALYSE_SHARED_SECRET`, and `JINA_API_KEY` are configured.
 - `POST /read` — fetches a public HTML page server-side.
-- `POST /analyse` — sends the job + CV text to the OpenAI Responses API and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set.
-- `POST /design` — captures a Microlink screenshot of the employer homepage, sends it to OpenAI Vision (gpt-4o) with the extracted brand signals, and returns a structured DesignSpec that drives the CV layout. Same auth as `/analyse`.
-- `GET /proxy-image?url=...` — proxies an employer logo so the PDF exporter can embed it.
+- `POST /analyse` — sends the job + CV text to the OpenAI Responses API (gpt-5) and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set.
+- `POST /design-cv-html` — takes the structured CV + brand signals + employer homepage URL, captures a Microlink screenshot, and asks gpt-5 with vision to produce a self-contained on-brand HTML CV. Same auth as `/analyse`. The browser then renders the HTML through the native print dialog, where the user picks **Save as PDF**.
+- `GET /proxy-image?url=...` — proxies an employer logo so the preview can render it without CORS issues.
 
 It allows browser calls from `https://steverowley.github.io` plus local development origins.
 
@@ -37,8 +37,8 @@ It allows browser calls from `https://steverowley.github.io` plus local developm
    - `CLOUDFLARE_API_TOKEN`: your Cloudflare API token.
    - `CLOUDFLARE_ACCOUNT_ID`: your Cloudflare account ID.
    - `OPENAI_API_KEY`: your OpenAI API key. Synced to the Worker as a Cloudflare secret on deploy.
-   - `ANALYSE_SHARED_SECRET` (optional but recommended): a long random string. The Worker rejects `/analyse` calls without a matching `Authorization` header. Set the same value as `VITE_ANALYSE_SHARED_SECRET` so the frontend can send it.
-4. In GitHub Actions, run the `Deploy Cloudflare Worker` workflow. It deploys the Worker, then syncs `OPENAI_API_KEY` and `ANALYSE_SHARED_SECRET` as Cloudflare secrets.
+   - `ANALYSE_SHARED_SECRET` (optional but recommended): a long random string. The Worker rejects authenticated endpoints without a matching `Authorization` header. Set the same value as `VITE_ANALYSE_SHARED_SECRET` so the frontend can send it.
+4. In GitHub Actions, run the `Deploy Cloudflare Worker` workflow. It deploys the Worker, then syncs the Cloudflare secrets above.
 5. Copy the deployed Worker URL. It will look similar to:
 
 ```text
