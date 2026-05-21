@@ -891,180 +891,16 @@ textarea {
   margin: 0 auto;
   max-width: 794px;
   min-height: 1123px;
-  padding: 0;
-  background: var(--brand-bg, #ffffff);
-  color: var(--brand-text, var(--text));
-  font-family: var(--brand-font, "Inter"), "Segoe UI", system-ui, sans-serif;
+  background: #ffffff;
+  color: var(--text);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   overflow: hidden;
   position: relative;
 }
 
-.cv-document::before {
-  content: "";
-  display: block;
-  height: 4px;
-  background: var(--brand-primary, var(--accent));
-}
-
-.cv-header {
-  padding: 44px 52px 28px;
-  border-bottom: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 14%, transparent);
-}
-
-.cv-brand-line {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--brand-primary, var(--accent)) 75%, var(--brand-text, var(--text)));
-}
-
-.cv-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 24px;
-  margin-top: 24px;
-}
-
-.cv-header h2 {
-  font-size: 32px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.08;
-  color: var(--brand-text, var(--text));
-}
-
-.cv-headline {
-  margin: 8px 0 0;
-  font-size: 14px;
-  line-height: 1.5;
-  color: color-mix(in srgb, var(--brand-primary, var(--accent)) 70%, var(--brand-text, var(--text)));
-  max-width: 540px;
-}
-
-.cv-contact {
-  margin: 22px 0 0;
-  padding-top: 14px;
-  border-top: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 12%, transparent);
-  font-size: 11.5px;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--brand-text, var(--text)) 62%, transparent);
-  letter-spacing: 0.01em;
-}
-
-.cv-header img {
-  max-height: 56px;
-  max-width: 140px;
-  object-fit: contain;
-  padding: 8px;
-  background: rgba(255, 255, 255, 0.6);
-  border: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 14%, transparent);
-  border-radius: var(--radius-sm);
-}
-
-.cv-layout {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  gap: 36px;
-  padding: 12px 52px 48px;
-}
-
-.cv-sidebar {
-  border-right: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 12%, transparent);
-  padding-right: 24px;
-}
-
-.cv-sidebar section,
-.cv-main section {
-  margin-bottom: 24px;
-}
-
-.cv-sidebar h3,
-.cv-main h3 {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: color-mix(in srgb, var(--brand-primary, var(--accent)) 80%, var(--brand-text, var(--text)));
-  margin-bottom: 10px;
-}
-
-.cv-profile {
-  padding: 18px 0 0;
-  border-top: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 14%, transparent);
-}
-
-.cv-experience-list {
-  display: grid;
-  gap: 22px;
-}
-
-.cv-experience {
-  break-inside: avoid;
-}
-
-.cv-role-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: 16px;
-}
-
-.cv-role-row strong {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--brand-text, var(--text));
-}
-
-.cv-role-row span {
-  font-size: 11.5px;
-  font-weight: 500;
-  color: color-mix(in srgb, var(--brand-primary, var(--accent)) 55%, var(--brand-text, var(--text)));
-}
-
-.cv-organisation {
-  margin: 4px 0 0;
-  font-size: 12.5px;
-  color: color-mix(in srgb, var(--brand-primary, var(--accent)) 45%, var(--brand-text, var(--text)));
-}
-
-.cv-page ul {
-  margin: 8px 0 0;
-  padding-left: 18px;
-}
-
-.cv-page p,
-.cv-page li {
-  font-size: 12.5px;
-  line-height: 1.65;
-}
-
-.cv-page li {
-  margin-bottom: 5px;
-}
-
-.cv-skills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.cv-skills span {
-  display: inline-block;
-  padding: 4px 8px;
-  background: color-mix(in srgb, var(--brand-primary, var(--accent)) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 18%, transparent);
-  border-radius: var(--radius-sm);
-  font-size: 10.5px;
-  line-height: 1.3;
-  color: color-mix(in srgb, var(--brand-primary, var(--accent)) 75%, var(--brand-text, var(--text)));
+.cv-page.preview-empty {
+  background: var(--surface);
 }
 
 .preview-placeholder {
@@ -1193,6 +1029,12 @@ textarea {
   }
 }
 
+.design-hint {
+  margin-top: 6px;
+  color: var(--text-soft);
+}
+
+
 @media (max-width: 980px) {
   .app-shell {
     padding: 24px 16px 56px;
@@ -1218,29 +1060,5 @@ textarea {
   .brand-row,
   .swatches {
     grid-template-columns: 1fr;
-  }
-
-  .cv-header {
-    padding: 28px 28px 22px;
-  }
-
-  .cv-hero,
-  .cv-brand-line,
-  .cv-role-row {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .cv-layout {
-    grid-template-columns: 1fr;
-    gap: 24px;
-    padding: 24px 28px 36px;
-  }
-
-  .cv-sidebar {
-    border-right: 0;
-    border-bottom: 1px solid color-mix(in srgb, var(--brand-primary, var(--accent)) 14%, transparent);
-    padding-right: 0;
-    padding-bottom: 18px;
   }
 }

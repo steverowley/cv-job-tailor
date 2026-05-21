@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BadgeCheck,
@@ -15,11 +15,13 @@ import {
 } from "lucide-react";
 import { extractCvText, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
+import { DesignReadError, defaultDesignSpec, readEmployerDesignSpec } from "./designReader";
 import { analyseCvAgainstJob } from "./analysis";
 import { exportTailoredCvPdf } from "./pdfExport";
-import { AnalysisResult, BrandSettings } from "./types";
+import { CvPreview } from "./CvPreview";
+import { AnalysisResult, BrandSettings, DesignSpec } from "./types";
 
-type Status = "idle" | "reading" | "analysing" | "ready" | "exporting" | "error";
+type Status = "idle" | "reading" | "designing" | "analysing" | "ready" | "exporting" | "error";
 type WorkerStatus = "idle" | "checking" | "configured" | "missing-key" | "unreachable";
 
 const DEFAULT_BRAND: BrandSettings = {
@@ -28,6 +30,7 @@ const DEFAULT_BRAND: BrandSettings = {
   accentColor: "#d3a84f",
   fontFamily: "Georgia",
 };
+const DEFAULT_DESIGN_SPEC: DesignSpec = defaultDesignSpec(DEFAULT_BRAND);
 
 const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
 const ANALYSE_SHARED_SECRET = import.meta.env.VITE_ANALYSE_SHARED_SECRET || "";
@@ -47,12 +50,19 @@ export function App() {
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
   const [brandGenerated, setBrandGenerated] = useState(false);
+  const [designSpec, setDesignSpec] = useState<DesignSpec>(DEFAULT_DESIGN_SPEC);
+  const [designGenerated, setDesignGenerated] = useState(false);
+  const [designMessage, setDesignMessage] = useState(
+    "Once you generate a brand, the CV layout adapts to the employer's homepage.",
+  );
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState("");
   const [readDiagnostics, setReadDiagnostics] = useState<ReadDiagnostic[]>([]);
-  const [brandMessage, setBrandMessage] = useState("Add the employer website to make the PDF match their public brand signals.");
+  const [brandMessage, setBrandMessage] = useState(
+    "Add the employer website to make the PDF match their public brand signals.",
+  );
   const [showJobFallback, setShowJobFallback] = useState(false);
   const [showBrandFallback, setShowBrandFallback] = useState(false);
   const [showReadyOverlay, setShowReadyOverlay] = useState(false);
@@ -178,14 +188,20 @@ export function App() {
       if (job.diagnostics?.length) {
         setReadDiagnostics(job.diagnostics);
       }
+      let workingBrand = brand;
       if (!employerWebsiteUrl.trim()) {
-        setBrand((current) => ({
-          ...current,
+        workingBrand = {
+          ...brand,
           ...job.brand,
           companyName:
-            current.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : current.companyName,
-        }));
+            brand.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : brand.companyName,
+        };
+        setBrand(workingBrand);
         setBrandGenerated(true);
+      }
+
+      if (!designGenerated) {
+        setDesignSpec(defaultDesignSpec(workingBrand));
       }
 
       const result = await analyseCvAgainstJob({
@@ -193,11 +209,11 @@ export function App() {
         sharedSecret: ANALYSE_SHARED_SECRET,
         jobText: job.text,
         cvText,
-        employerHint: brand.companyName || job.brand.companyName,
+        employerHint: workingBrand.companyName || job.brand.companyName,
       });
 
       setAnalysis(result);
-      setActiveOutput("review");
+      setActiveOutput("cv");
       setMessage(job.warning || "Analysis complete. Review the evidence before exporting.");
       setStatus("ready");
       setShowReadyOverlay(true);
@@ -223,17 +239,60 @@ export function App() {
       setShowBrandFallback(false);
       setBrandMessage("Brand generated. You can still fine-tune it before export.");
       setStatus("idle");
+      void designForEmployer(generatedBrand, employerWebsiteUrl.trim());
     } catch (error) {
       if (error instanceof BrandReadError) {
-        setBrand((current) => ({ ...current, ...error.fallbackBrand }));
+        const fallback = { ...brand, ...error.fallbackBrand };
+        setBrand(fallback);
         setBrandGenerated(true);
         setReadDiagnostics(error.diagnostics);
+        void designForEmployer(fallback, employerWebsiteUrl.trim());
       } else {
         setReadDiagnostics(getErrorDiagnostics(error));
       }
       setShowBrandFallback(true);
       setBrandMessage(error instanceof Error ? error.message : "The employer website could not be read.");
       setStatus("error");
+    }
+  }
+
+  async function designForEmployer(forBrand: BrandSettings, websiteUrl: string) {
+    if (!websiteUrl) {
+      const fallback = defaultDesignSpec(forBrand);
+      setDesignSpec(fallback);
+      setDesignGenerated(false);
+      setDesignMessage(
+        "No employer website URL provided, so a default classic layout is used. Add a website URL to design the CV on-brand.",
+      );
+      return;
+    }
+
+    try {
+      setStatus("designing");
+      setDesignMessage("Capturing the employer homepage and designing an on-brand CV layout...");
+      const { designSpec: spec } = await readEmployerDesignSpec({
+        workerUrl,
+        sharedSecret: ANALYSE_SHARED_SECRET,
+        websiteUrl,
+        brand: forBrand,
+      });
+      setDesignSpec(spec);
+      setDesignGenerated(true);
+      setDesignMessage(designSummary(spec));
+      setStatus("idle");
+    } catch (error) {
+      if (error instanceof DesignReadError) {
+        setDesignSpec(error.fallbackSpec);
+      } else {
+        setDesignSpec(defaultDesignSpec(forBrand));
+      }
+      setDesignGenerated(false);
+      setDesignMessage(
+        `On-brand design could not be generated, so a default layout is used. ${
+          error instanceof Error ? error.message : ""
+        }`.trim(),
+      );
+      setStatus("idle");
     }
   }
 
@@ -248,6 +307,7 @@ export function App() {
       await exportTailoredCvPdf({
         analysis,
         brand,
+        designSpec,
         filename: `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`,
         workerUrl,
       });
@@ -389,13 +449,18 @@ export function App() {
             </label>
             <button
               className="brand-action"
-              disabled={(!employerWebsiteUrl.trim() && !employerBrandSource.trim()) || status === "reading"}
+              disabled={
+                (!employerWebsiteUrl.trim() && !employerBrandSource.trim()) ||
+                status === "reading" ||
+                status === "designing"
+              }
               onClick={generateBrand}
             >
               <Palette aria-hidden="true" />
               {brandGenerated ? "Re-generate brand" : "Generate brand"}
             </button>
             <p className="hint">{brandMessage}</p>
+            <p className="hint design-hint">{designMessage}</p>
             {brandGenerated ? (
               <>
                 <div className="brand-preview">
@@ -409,6 +474,7 @@ export function App() {
                       {[
                         brand.logoUrl ? "Logo found" : "No logo detected",
                         brand.fontFamily || "Default font",
+                        designGenerated ? `Design: ${designSpec.archetype}` : "Default design",
                       ]
                         .filter(Boolean)
                         .join(" / ")}
@@ -539,7 +605,12 @@ export function App() {
           {activeOutput === "review" ? (
             <ReviewPanel analysis={analysis} />
           ) : (
-            <CvPreview refElement={pdfRef} analysis={analysis} brand={brand} />
+            <CvPreview
+              analysis={analysis}
+              designSpec={designSpec}
+              logoUrl={brand.logoUrl}
+              companyDisplayName={brand.companyName}
+            />
           )}
           <button className="secondary-action" disabled={!analysis || status === "exporting"} onClick={exportPdf}>
             <Download aria-hidden="true" />
@@ -645,6 +716,9 @@ function getWorkingLabel(status: Status, workerStatus: WorkerStatus): string {
   if (status === "reading") {
     return "Reading the document or employer website";
   }
+  if (status === "designing") {
+    return "Designing the CV from the employer's homepage";
+  }
   if (status === "analysing") {
     return "Comparing the job description with the CV";
   }
@@ -723,6 +797,16 @@ function formatWorkerStatus(status: WorkerStatus, detail = ""): string {
   return "Add the Worker URL to enable analysis, website reading, and brand extraction.";
 }
 
+function designSummary(spec: DesignSpec): string {
+  const archetypeLabel = {
+    "editorial": "Editorial — narrow column, large display heading",
+    "sidebar-classic": "Sidebar classic — two-column structured layout",
+    "feature-band": "Feature band — full-bleed coloured hero",
+    "monolith": "Monolith — minimal single column",
+  }[spec.archetype];
+  return `${archetypeLabel}. ${spec.mood}`;
+}
+
 function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
   if (!analysis) {
     return (
@@ -766,133 +850,6 @@ function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
           </ul>
         </div>
       ) : null}
-    </section>
-  );
-}
-
-function CvPreview({
-  analysis,
-  brand,
-  refElement,
-}: {
-  analysis: AnalysisResult | null;
-  brand: BrandSettings;
-  refElement: React.RefObject<HTMLDivElement>;
-}) {
-  const cv = analysis?.tailoredCv.fullCv;
-
-  return (
-    <section className="preview-shell">
-      <div
-        ref={refElement}
-        className="cv-page cv-document"
-        style={
-          {
-            "--brand-primary": brand.primaryColor,
-            "--brand-accent": brand.accentColor,
-            "--brand-bg": brand.backgroundColor || "#fffefb",
-            "--brand-text": brand.textColor || "#25221e",
-            "--brand-font": `"${brand.fontFamily || "Georgia"}", Georgia, serif`,
-          } as React.CSSProperties
-        }
-      >
-        {cv ? (
-          <>
-            <header className="cv-header">
-              <div className="cv-brand-line">
-                <span>{analysis?.employerName || brand.companyName}</span>
-                <span>Tailored application CV</span>
-              </div>
-              <div className="cv-hero">
-                <div>
-                  <h2>{cv.name}</h2>
-                  <p className="cv-headline">{cv.headline}</p>
-                </div>
-                {brand.logoUrl ? <img src={brand.logoUrl} alt={`${brand.companyName} logo`} /> : null}
-              </div>
-              {cv.contactLines.length ? <p className="cv-contact">{cv.contactLines.join(" / ")}</p> : null}
-            </header>
-
-            <div className="cv-layout">
-              <aside className="cv-sidebar">
-                {cv.skills.length ? (
-                  <section>
-                    <h3>Skills</h3>
-                    <div className="cv-skills">
-                      {cv.skills.map((skill, index) => (
-                        <span key={index}>{skill}</span>
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
-                {cv.education.length ? (
-                  <section>
-                    <h3>Education</h3>
-                    <ul>
-                      {cv.education.map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-                {cv.certifications.length ? (
-                  <section>
-                    <h3>Certifications</h3>
-                    <ul>
-                      {cv.certifications.map((item, index) => (
-                        <li key={index}>{item}</li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null}
-              </aside>
-
-              <div className="cv-main">
-                <section className="cv-profile">
-                  <h3>Profile</h3>
-                  <p>{cv.profile}</p>
-                </section>
-                {cv.experience.length ? (
-                  <section>
-                    <h3>Experience</h3>
-                    <div className="cv-experience-list">
-                      {cv.experience.map((item, index) => (
-                        <article className="cv-experience" key={index}>
-                          <div className="cv-role-row">
-                            <strong>{item.role}</strong>
-                            <span>{item.dates}</span>
-                          </div>
-                          <p className="cv-organisation">
-                            {[item.organisation, item.location].filter(Boolean).join(" / ")}
-                          </p>
-                          <ul>
-                            {item.bullets.map((bullet, bulletIndex) => (
-                              <li key={bulletIndex}>{bullet}</li>
-                            ))}
-                          </ul>
-                        </article>
-                      ))}
-                    </div>
-                  </section>
-                ) : null}
-                {cv.additionalSections.map((section, sectionIndex) => (
-                  <section key={sectionIndex}>
-                    <h3>{section.title}</h3>
-                    <ul>
-                      {section.items.map((item, itemIndex) => (
-                        <li key={itemIndex}>{item}</li>
-                      ))}
-                    </ul>
-                  </section>
-                ))}
-              </div>
-            </div>
-
-          </>
-        ) : (
-          <p className="preview-placeholder">Your branded CV output will be rendered here after analysis.</p>
-        )}
-      </div>
     </section>
   );
 }

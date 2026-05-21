@@ -18,6 +18,8 @@ const MAX_REPORTED_COLORS = 400;
 const MAX_REPORTED_FONTS = 20;
 
 const MODEL = "gpt-5";
+const DESIGN_MODEL = "gpt-4o";
+const MICROLINK_ENDPOINT = "https://api.microlink.io/";
 
 const SYSTEM_PROMPT = `You are a senior CV writer producing a tailored, single-document CV for one specific job application. Your output is rendered into a branded PDF, so length, tone, and structure matter as much as content.
 
@@ -57,6 +59,20 @@ OUTPUT EXPECTATIONS
 - The CV must read as confidently written, specific, and visibly tailored to the JD — without padding, repetition, or hype.
 - Target one strong page; spill to two pages only if senior-experience depth justifies it.
 - The exact JSON schema is enforced. Field descriptions inside the schema repeat these targets — follow them.`;
+
+const DESIGN_SYSTEM_PROMPT = [
+  "You design CV documents that visually echo a specific employer's brand.",
+  "You receive a screenshot of the employer's homepage and a few extracted brand signals (colours, fonts, name).",
+  "You return a structured DesignSpec that another program will render into a CV.",
+  "Read the screenshot like a designer: notice typography (serif vs sans, display vs neutral, weight, case, tracking), layout density, geometry (sharp vs round corners, the role of accent bars and rules), colour usage rules (where the primary appears vs the accent), and overall mood (editorial, corporate-classic, brutalist-minimal, technical-monospace, premium-quiet, playful, etc.).",
+  "Choose the archetype that best matches the employer's vibe — do not default to one:",
+  "- editorial: narrow single column, large display heading, generous margins, thin rules, refined serif or modern sans",
+  "- sidebar-classic: two-column with sidebar; structured, dense, corporate or institutional",
+  "- feature-band: full-bleed coloured hero band with logo and name in white; bold, brand-forward, modern",
+  "- monolith: single column, minimal chrome, lots of whitespace, no accent bar, very quiet",
+  "Pick typography, geometry, colour roles, hero treatment, section label style and sidebar position so the CV would feel of-a-piece with the employer's homepage.",
+  "Never invent colours: use the extracted brand colours and their tonal variants. Ensure the text colour reads against the page background.",
+];
 
 const ANALYSIS_SCHEMA = {
   type: "object",
@@ -257,6 +273,85 @@ const ANALYSIS_SCHEMA = {
   },
 };
 
+const DESIGN_SPEC_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  required: ["archetype", "mood", "typography", "geometry", "color", "hero", "sectionLabel", "sidebar"],
+  properties: {
+    archetype: {
+      type: "string",
+      enum: ["editorial", "sidebar-classic", "feature-band", "monolith"],
+    },
+    mood: { type: "string" },
+    typography: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "headingFont",
+        "headingKind",
+        "headingWeight",
+        "headingCase",
+        "headingTracking",
+        "bodyFont",
+        "bodyKind",
+        "density",
+        "headlineSize",
+      ],
+      properties: {
+        headingFont: { type: "string" },
+        headingKind: { type: "string", enum: ["serif", "sans", "mono", "display-serif"] },
+        headingWeight: {
+          type: "string",
+          enum: ["regular", "medium", "semibold", "bold", "black"],
+        },
+        headingCase: { type: "string", enum: ["default", "upper", "title"] },
+        headingTracking: { type: "string", enum: ["tight", "normal", "wide", "ultra"] },
+        bodyFont: { type: "string" },
+        bodyKind: { type: "string", enum: ["serif", "sans", "mono", "display-serif"] },
+        density: { type: "string", enum: ["compact", "comfortable", "expansive"] },
+        headlineSize: { type: "string", enum: ["modest", "large", "display"] },
+      },
+    },
+    geometry: {
+      type: "object",
+      additionalProperties: false,
+      required: ["corner", "divider", "bullet"],
+      properties: {
+        corner: { type: "string", enum: ["sharp", "soft", "round", "pill"] },
+        divider: { type: "string", enum: ["rule", "double-rule", "block", "none"] },
+        bullet: { type: "string", enum: ["dot", "dash", "square", "arrow", "number"] },
+      },
+    },
+    color: {
+      type: "object",
+      additionalProperties: false,
+      required: ["pageBackground", "surface", "primary", "accent", "text", "muted"],
+      properties: {
+        pageBackground: { type: "string" },
+        surface: { type: "string" },
+        primary: { type: "string" },
+        accent: { type: "string" },
+        text: { type: "string" },
+        muted: { type: "string" },
+      },
+    },
+    hero: {
+      type: "object",
+      additionalProperties: false,
+      required: ["accentBar", "showLogo"],
+      properties: {
+        accentBar: { type: "string", enum: ["top-thick", "side-thick", "underline", "none"] },
+        showLogo: { type: "boolean" },
+      },
+    },
+    sectionLabel: {
+      type: "string",
+      enum: ["uppercase-tracked", "title-case", "underlined", "numbered", "block-tag"],
+    },
+    sidebar: { type: "string", enum: ["left", "right", "none"] },
+  },
+};
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get("origin") || "";
@@ -291,6 +386,10 @@ export default {
       return analyseWithOpenAI(request, env, corsHeaders);
     }
 
+    if (url.pathname === "/design" && request.method === "POST") {
+      return designWithOpenAI(request, env, corsHeaders);
+    }
+
     if (url.pathname === "/proxy-image" && request.method === "GET") {
       return proxyImage(url, corsHeaders);
     }
@@ -300,7 +399,7 @@ export default {
     }
 
     return json(
-      { error: "Use GET /status, POST /read, POST /analyse, or GET /proxy-image." },
+      { error: "Use GET /status, POST /read, POST /analyse, POST /design, or GET /proxy-image." },
       404,
       corsHeaders,
     );
@@ -477,6 +576,178 @@ async function analyseWithOpenAI(request, env, corsHeaders) {
   }
 
   return json({ analysis }, 200, corsHeaders);
+}
+
+async function designWithOpenAI(request, env, corsHeaders) {
+  if (!env.OPENAI_API_KEY) {
+    return json({ error: "The Worker is missing its OPENAI_API_KEY secret." }, 500, corsHeaders);
+  }
+
+  if (env.ANALYSE_SHARED_SECRET) {
+    const auth = request.headers.get("authorization") || "";
+    const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+    if (!timingSafeEqual(provided, env.ANALYSE_SHARED_SECRET)) {
+      return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
+    }
+  }
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return json({ error: "Request body must be JSON." }, 400, corsHeaders);
+  }
+
+  const websiteUrl = typeof payload?.websiteUrl === "string" ? payload.websiteUrl.trim() : "";
+  if (!websiteUrl) {
+    return json({ error: "websiteUrl is required." }, 400, corsHeaders);
+  }
+  let validatedUrl;
+  try {
+    validatedUrl = validateTargetUrl(websiteUrl);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Invalid websiteUrl." }, 400, corsHeaders);
+  }
+
+  const brand = sanitizeBrandHint(payload?.brand);
+  const htmlExcerpt = typeof payload?.htmlExcerpt === "string" ? payload.htmlExcerpt.slice(0, 8_000) : "";
+
+  let screenshot;
+  try {
+    screenshot = await fetchMicrolinkScreenshot(validatedUrl);
+  } catch (error) {
+    return json(
+      {
+        error: `The employer homepage screenshot could not be captured. ${
+          error instanceof Error ? error.message : ""
+        }`.trim(),
+      },
+      502,
+      corsHeaders,
+    );
+  }
+
+  const userContent = [
+    { type: "input_text", text: buildDesignPromptText(websiteUrl, brand, htmlExcerpt) },
+    { type: "input_image", image_url: screenshot.url },
+  ];
+
+  const body = {
+    model: DESIGN_MODEL,
+    input: [
+      { role: "system", content: DESIGN_SYSTEM_PROMPT.join("\n") },
+      { role: "user", content: userContent },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "cv_design_spec",
+        strict: true,
+        schema: DESIGN_SPEC_SCHEMA,
+      },
+    },
+  };
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  const rawText = await response.text();
+  if (!response.ok) {
+    const message = extractOpenAIError(rawText) || `OpenAI design failed with HTTP ${response.status}.`;
+    return json({ error: message }, 502, corsHeaders);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    return json({ error: "OpenAI returned non-JSON." }, 502, corsHeaders);
+  }
+
+  const designSpec = extractOpenAIStructuredAnalysis(parsed);
+  if (!designSpec) {
+    return json({ error: "OpenAI returned no structured design spec." }, 502, corsHeaders);
+  }
+
+  return json(
+    {
+      designSpec,
+      screenshotUrl: screenshot.url,
+    },
+    200,
+    corsHeaders,
+  );
+}
+
+function buildDesignPromptText(websiteUrl, brand, htmlExcerpt) {
+  const lines = [
+    `Employer website: ${websiteUrl}`,
+    `Employer name: ${brand.companyName || "Unknown"}`,
+    `Extracted primary colour: ${brand.primaryColor || "Unknown"}`,
+    `Extracted accent colour: ${brand.accentColor || "Unknown"}`,
+    `Extracted background colour: ${brand.backgroundColor || "Unknown"}`,
+    `Extracted body font hint: ${brand.fontFamily || "Unknown"}`,
+    `Extracted palette: ${(brand.palette || []).join(", ") || "Unknown"}`,
+    "",
+    "Use the screenshot to choose an archetype and design parameters that look like they belong to this employer.",
+    "Reuse the extracted brand colours (and tonal variants of them). Pick a primary and accent that mirror how the homepage uses them. Choose body and heading font kinds (serif/sans/mono/display-serif) that match the homepage's typographic feel — even if the named font is not available, the kind is what matters.",
+    "Ensure the chosen text colour reads against the chosen page background.",
+  ];
+  if (htmlExcerpt) {
+    lines.push("", "Homepage HTML excerpt (truncated):", htmlExcerpt);
+  }
+  return lines.join("\n");
+}
+
+function sanitizeBrandHint(value) {
+  if (!value || typeof value !== "object") return {};
+  const safe = {};
+  for (const key of [
+    "companyName",
+    "primaryColor",
+    "accentColor",
+    "backgroundColor",
+    "textColor",
+    "fontFamily",
+  ]) {
+    if (typeof value[key] === "string") safe[key] = value[key].slice(0, 200);
+  }
+  if (Array.isArray(value.palette)) {
+    safe.palette = value.palette
+      .filter((entry) => typeof entry === "string")
+      .slice(0, 8)
+      .map((entry) => entry.slice(0, 32));
+  }
+  return safe;
+}
+
+async function fetchMicrolinkScreenshot(targetUrl) {
+  const apiUrl = new URL(MICROLINK_ENDPOINT);
+  apiUrl.searchParams.set("url", targetUrl);
+  apiUrl.searchParams.set("screenshot", "true");
+  apiUrl.searchParams.set("meta", "false");
+  apiUrl.searchParams.set("viewport.width", "1440");
+  apiUrl.searchParams.set("viewport.height", "900");
+  apiUrl.searchParams.set("screenshot.fullPage", "false");
+
+  const response = await fetch(apiUrl.toString(), {
+    headers: { accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`Microlink responded with HTTP ${response.status}.`);
+  }
+  const payload = await response.json().catch(() => null);
+  const url = payload?.data?.screenshot?.url;
+  if (typeof url !== "string" || !url) {
+    throw new Error("Microlink did not return a screenshot URL.");
+  }
+  return { url };
 }
 
 async function proxyImage(url, corsHeaders) {
