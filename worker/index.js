@@ -871,6 +871,15 @@ function bufferToBase64(buffer) {
   return btoa(binary);
 }
 
+const GENERATED_HTML_CSP = [
+  "default-src 'none'",
+  "img-src data:",
+  "style-src 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+
 function sanitizeGeneratedHtml(value) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error("html must be a non-empty string.");
@@ -883,16 +892,40 @@ function sanitizeGeneratedHtml(value) {
     throw new Error("html must start with <!DOCTYPE html>.");
   }
   const lowered = trimmed.toLowerCase();
-  const forbiddenSubstrings = ["<script", "</script", "<iframe", "<object", "<embed", "javascript:", "vbscript:"];
+  const forbiddenSubstrings = [
+    "<script",
+    "</script",
+    "<iframe",
+    "<object",
+    "<embed",
+    "<form",
+    "<base",
+    "http-equiv",
+    "javascript:",
+    "vbscript:",
+  ];
   for (const needle of forbiddenSubstrings) {
     if (lowered.includes(needle)) {
       throw new Error(`html contains forbidden token "${needle}".`);
     }
   }
-  if (/\son[a-z]+\s*=/i.test(trimmed)) {
+  // HTML5 accepts both whitespace and "/" between attributes, so an `\s`-only
+  // check misses payloads such as `<svg/onload=alert(1)>`.
+  if (/[\s/]on[a-z]+\s*=/i.test(trimmed)) {
     throw new Error("html contains an event-handler attribute (on*=).");
   }
-  return trimmed;
+  return injectGeneratedHtmlCsp(trimmed);
+}
+
+function injectGeneratedHtmlCsp(html) {
+  const cspTag = `<meta http-equiv="Content-Security-Policy" content="${GENERATED_HTML_CSP}">`;
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (match) => `${match}${cspTag}`);
+  }
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${cspTag}</head>`);
+  }
+  throw new Error("html must contain <html> and <head> tags.");
 }
 
 function sanitizeBrandHint(value) {
