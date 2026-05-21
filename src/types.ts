@@ -63,6 +63,5 @@ export interface BrandSettings {
   backgroundColor?: string;
   textColor?: string;
   fontFamily?: string;
-  layoutStyle?: "editorial" | "executive" | "technical" | "classic";
   palette?: string[];
 }

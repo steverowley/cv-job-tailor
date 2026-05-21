@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFallbackBrand,
+  deriveAccentColor,
   findFontHint,
   parseBrandSource,
   parseHtmlPage,
@@ -58,15 +59,74 @@ describe("parseHtmlPage", () => {
     expect(parsed.text).toMatch(/TypeScript/);
   });
 
-  it("derives a layout style from technical keywords", () => {
+  it("derives an accent that is not the hardcoded default when only one brand colour is present", () => {
     const html = `
       <html>
-        <head><title>API Engineer</title></head>
-        <body><p>Build scalable platform engineering across our cloud APIs.</p></body>
+        <head>
+          <meta name="theme-color" content="#0066cc" />
+        </head>
+        <body><p>Hello.</p></body>
       </html>
     `;
     const parsed = parseHtmlPage(html, "https://example.com");
-    expect(parsed.brand.layoutStyle).toBe("technical");
+    expect(parsed.brand.primaryColor).toBe("#0066cc");
+    expect(parsed.brand.accentColor).not.toBe("#d3a84f");
+    expect(parsed.brand.accentColor).not.toBe("#1f3a34");
+    expect(parsed.brand.accentColor).not.toBe("#f0c75e");
+    expect(parsed.brand.accentColor).not.toBe(parsed.brand.primaryColor);
+    expect(parsed.brand.accentColor).toMatch(/^#[0-9a-f]{6}$/i);
+  });
+
+  it("prefers a saturated brand colour over frequent neutrals", () => {
+    const html = `
+      <html>
+        <head>
+          <style>
+            .a { color: #cccccc; }
+            .b { color: #cccccc; background: #cccccc; border-color: #cccccc; }
+            .c { color: #cccccc; }
+            .brand { color: #0a7d4b; }
+          </style>
+        </head>
+        <body><p>Hello.</p></body>
+      </html>
+    `;
+    const parsed = parseHtmlPage(html, "https://example.com");
+    expect(parsed.brand.primaryColor).toBe("#0a7d4b");
+  });
+
+  it("picks up Google Fonts family from a stylesheet link", () => {
+    const html = `
+      <html>
+        <head>
+          <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet" />
+        </head>
+        <body><p>Hello.</p></body>
+      </html>
+    `;
+    const parsed = parseHtmlPage(html, "https://example.com");
+    expect(parsed.brand.fontFamily).toBe("Space Grotesk");
+  });
+});
+
+describe("deriveAccentColor", () => {
+  it("rotates the hue of a saturated primary to produce a related accent", () => {
+    const accent = deriveAccentColor("#0066cc");
+    expect(accent).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(accent.toLowerCase()).not.toBe("#0066cc");
+    expect(accent.toLowerCase()).not.toBe("#f0c75e");
+    expect(accent.toLowerCase()).not.toBe("#1f3a34");
+  });
+
+  it("shifts lightness for a near-grey primary instead of falling back to a constant", () => {
+    const accent = deriveAccentColor("#333333");
+    expect(accent).toMatch(/^#[0-9a-f]{6}$/i);
+    expect(accent.toLowerCase()).not.toBe("#333333");
+    expect(accent.toLowerCase()).not.toBe("#f0c75e");
+  });
+
+  it("is deterministic for the same primary", () => {
+    expect(deriveAccentColor("#22aa55")).toBe(deriveAccentColor("#22aa55"));
   });
 });
 
