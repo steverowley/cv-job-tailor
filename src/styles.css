@@ -660,6 +660,13 @@ textarea {
   border-left-color: var(--danger);
 }
 
+.output-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .output-tabs {
   display: inline-flex;
   gap: 4px;
@@ -668,6 +675,50 @@ textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   width: fit-content;
+}
+
+.icon-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: var(--surface);
+  color: var(--text-soft);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.icon-action svg {
+  width: 16px;
+  height: 16px;
+}
+
+.icon-action:hover:not(:disabled) {
+  background: var(--surface-muted);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.review-stack-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  margin: 0;
+  padding: 24px clamp(24px, 5vw, 56px);
+  background: var(--bg);
+  overflow: auto;
+  display: grid;
+  gap: 16px;
+  grid-template-rows: auto 1fr auto;
+}
+
+.review-stack-fullscreen .preview-shell {
+  display: grid;
+  place-items: start center;
+  min-height: 0;
 }
 
 .output-tabs button {
@@ -1022,6 +1073,124 @@ textarea {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(15, 15, 17, 0.55);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  animation: overlay-fade 200ms ease-out;
+}
+
+.overlay-card {
+  position: relative;
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  padding: 36px 32px 32px;
+  max-width: 460px;
+  width: 100%;
+  text-align: center;
+  box-shadow: 0 24px 60px -20px rgba(15, 15, 17, 0.4), 0 0 0 1px rgba(24, 24, 27, 0.06);
+  display: grid;
+  gap: 12px;
+  animation: overlay-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.overlay-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.overlay-close:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+.overlay-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.overlay-icon {
+  width: 40px;
+  height: 40px;
+  color: var(--success);
+  margin: 4px auto 0;
+}
+
+.overlay-card h2 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.overlay-card p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+.overlay-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.overlay-actions .primary-action,
+.overlay-actions .secondary-action {
+  margin: 0;
+}
+
+.overlay-actions .text-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.overlay-actions .text-action svg {
+  width: 14px;
+  height: 14px;
+}
+
+@keyframes overlay-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes overlay-rise {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @media (max-width: 980px) {

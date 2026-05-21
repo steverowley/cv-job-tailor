@@ -5,10 +5,13 @@ import {
   Download,
   FileText,
   Link,
+  Maximize2,
+  Minimize2,
   Palette,
   Server,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
 import { extractCvText, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
@@ -52,6 +55,8 @@ export function App() {
   const [brandMessage, setBrandMessage] = useState("Add the employer website to make the PDF match their public brand signals.");
   const [showJobFallback, setShowJobFallback] = useState(false);
   const [showBrandFallback, setShowBrandFallback] = useState(false);
+  const [showReadyOverlay, setShowReadyOverlay] = useState(false);
+  const [isOutputFullscreen, setIsOutputFullscreen] = useState(false);
   const pdfRef = useRef<HTMLDivElement>(null);
 
   const canAnalyse = useMemo(
@@ -101,6 +106,29 @@ export function App() {
     checkWorker();
     return () => controller.abort();
   }, [workerUrl]);
+
+  useEffect(() => {
+    if (!isOutputFullscreen && !showReadyOverlay) return;
+    function onKey(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (showReadyOverlay) {
+        setShowReadyOverlay(false);
+      } else if (isOutputFullscreen) {
+        setIsOutputFullscreen(false);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isOutputFullscreen, showReadyOverlay]);
+
+  useEffect(() => {
+    if (!isOutputFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOutputFullscreen]);
 
   function saveWorkerUrl(value: string) {
     setWorkerUrl(value);
@@ -172,6 +200,7 @@ export function App() {
       setActiveOutput("review");
       setMessage(job.warning || "Analysis complete. Review the evidence before exporting.");
       setStatus("ready");
+      setShowReadyOverlay(true);
     } catch (error) {
       setShowJobFallback(true);
       setReadDiagnostics(getErrorDiagnostics(error));
@@ -479,21 +508,32 @@ export function App() {
           <ReadDiagnostics diagnostics={readDiagnostics} />
         </div>
 
-        <div className="review-stack">
-          <div className="output-tabs" aria-label="Output view">
+        <div className={`review-stack ${isOutputFullscreen ? "review-stack-fullscreen" : ""}`}>
+          <div className="output-bar">
+            <div className="output-tabs" aria-label="Output view">
+              <button
+                className={activeOutput === "review" ? "active" : ""}
+                onClick={() => setActiveOutput("review")}
+                type="button"
+              >
+                Review
+              </button>
+              <button
+                className={activeOutput === "cv" ? "active" : ""}
+                onClick={() => setActiveOutput("cv")}
+                type="button"
+              >
+                CV
+              </button>
+            </div>
             <button
-              className={activeOutput === "review" ? "active" : ""}
-              onClick={() => setActiveOutput("review")}
+              className="icon-action"
               type="button"
+              onClick={() => setIsOutputFullscreen((value) => !value)}
+              aria-label={isOutputFullscreen ? "Exit fullscreen" : "Open fullscreen"}
+              title={isOutputFullscreen ? "Exit fullscreen (Esc)" : "Open fullscreen"}
             >
-              Review
-            </button>
-            <button
-              className={activeOutput === "cv" ? "active" : ""}
-              onClick={() => setActiveOutput("cv")}
-              type="button"
-            >
-              CV
+              {isOutputFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
             </button>
           </div>
           {activeOutput === "review" ? (
@@ -507,7 +547,83 @@ export function App() {
           </button>
         </div>
       </section>
+
+      {showReadyOverlay && analysis ? (
+        <ReadyOverlay
+          employerName={analysis.employerName || brand.companyName}
+          onDismiss={() => setShowReadyOverlay(false)}
+          onOpenReview={() => {
+            setActiveOutput("review");
+            setIsOutputFullscreen(true);
+            setShowReadyOverlay(false);
+          }}
+          onOpenCv={() => {
+            setActiveOutput("cv");
+            setIsOutputFullscreen(true);
+            setShowReadyOverlay(false);
+          }}
+          onDownload={() => {
+            setShowReadyOverlay(false);
+            exportPdf();
+          }}
+        />
+      ) : null}
     </main>
+  );
+}
+
+function ReadyOverlay({
+  employerName,
+  onDismiss,
+  onOpenReview,
+  onOpenCv,
+  onDownload,
+}: {
+  employerName: string;
+  onDismiss: () => void;
+  onOpenReview: () => void;
+  onOpenCv: () => void;
+  onDownload: () => void;
+}) {
+  return (
+    <div
+      className="overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="ready-overlay-title"
+      onClick={onDismiss}
+    >
+      <div className="overlay-card" onClick={(event) => event.stopPropagation()}>
+        <button
+          className="overlay-close"
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+        >
+          <X aria-hidden="true" />
+        </button>
+        <BadgeCheck className="overlay-icon" aria-hidden="true" />
+        <h2 id="ready-overlay-title">Your tailored CV is ready</h2>
+        <p>
+          {employerName ? `${employerName} version generated.` : "Analysis complete."}{" "}
+          Review the evidence, open the CV preview, or download the branded PDF.
+        </p>
+        <div className="overlay-actions">
+          <button className="primary-action" type="button" onClick={onOpenCv}>
+            <Maximize2 aria-hidden="true" />
+            Open CV fullscreen
+          </button>
+          <button className="secondary-action" type="button" onClick={onOpenReview}>
+            <Sparkles aria-hidden="true" />
+            Open evidence review
+          </button>
+          <button className="text-action" type="button" onClick={onDownload}>
+            <Download aria-hidden="true" />
+            Download branded PDF
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
