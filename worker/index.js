@@ -187,18 +187,43 @@ async function readPage(request, corsHeaders) {
       redirect: "follow",
     });
     let usedReaderProxy = false;
-    let directStatus = response.status;
+    let proxyAttempted = false;
+    let proxyStatus = null;
+    let proxyError = "";
+    const directStatus = response.status;
 
     if (!response.ok && shouldRetryViaReaderProxy(response.status)) {
-      const proxied = await fetchViaReaderProxy(targetUrl).catch(() => null);
-      if (proxied && proxied.ok) {
-        response = proxied;
-        usedReaderProxy = true;
+      proxyAttempted = true;
+      try {
+        const proxied = await fetchViaReaderProxy(targetUrl);
+        proxyStatus = proxied.status;
+        if (proxied.ok) {
+          response = proxied;
+          usedReaderProxy = true;
+        } else {
+          proxyError = (await proxied.text().catch(() => "")).slice(0, 500);
+        }
+      } catch (err) {
+        proxyError = err instanceof Error ? err.message : String(err);
       }
     }
 
     if (!response.ok) {
-      return json({ error: explainUpstreamStatus(directStatus) }, 502, corsHeaders);
+      const detail = proxyAttempted
+        ? `Direct fetch returned ${directStatus}; reader proxy ${
+            proxyStatus ? `returned ${proxyStatus}` : "could not be reached"
+          }${proxyError ? ` — ${proxyError}` : ""}.`
+        : explainUpstreamStatus(directStatus);
+      return json(
+        {
+          error: detail,
+          directStatus,
+          proxyAttempted,
+          proxyStatus,
+        },
+        502,
+        corsHeaders,
+      );
     }
 
     const contentType = response.headers.get("content-type") || "";
@@ -220,6 +245,8 @@ async function readPage(request, corsHeaders) {
         externalStyles,
         viaReaderProxy: usedReaderProxy,
         directStatus,
+        proxyAttempted,
+        proxyStatus,
       },
       200,
       corsHeaders,
