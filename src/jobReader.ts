@@ -19,6 +19,11 @@ export interface ReadDiagnostic {
   detail?: string;
 }
 
+export interface ExternalStyleSignals {
+  colors: string[];
+  fonts: string[];
+}
+
 const DEFAULT_BRAND: BrandSettings = {
   companyName: "Target employer",
   primaryColor: "#1b4d3e",
@@ -54,7 +59,7 @@ export async function readJobDescription(
     try {
       const read = await readPageHtml(trimmedUrl, workerUrl);
       const html = read.html;
-      const parsed = parseHtmlPage(html, trimmedUrl);
+      const parsed = parseHtmlPage(html, trimmedUrl, read.externalStyles);
       if (parsed.text.length < 300) {
         throw new ReadPageError("The page did not expose enough readable job text.", [
           ...read.diagnostics,
@@ -124,7 +129,7 @@ export async function readEmployerBrand(
   try {
     const read = await readPageHtml(trimmedUrl, workerUrl);
     const html = read.html;
-    return parseHtmlPage(html, trimmedUrl).brand;
+    return parseHtmlPage(html, trimmedUrl, read.externalStyles).brand;
   } catch (error) {
     const fallback = buildFallbackBrand(trimmedUrl);
     throw new BrandReadError(
@@ -145,7 +150,10 @@ class ReadPageError extends Error {
   }
 }
 
-async function readPageHtml(pageUrl: string, workerUrl: string): Promise<{ html: string; diagnostics: ReadDiagnostic[] }> {
+async function readPageHtml(
+  pageUrl: string,
+  workerUrl: string,
+): Promise<{ html: string; externalStyles?: ExternalStyleSignals; diagnostics: ReadDiagnostic[] }> {
   const trimmedWorkerUrl = workerUrl.trim();
   const diagnostics: ReadDiagnostic[] = [];
 
@@ -154,13 +162,22 @@ async function readPageHtml(pageUrl: string, workerUrl: string): Promise<{ html:
       const read = await readViaWorker(pageUrl, trimmedWorkerUrl);
       return {
         html: read.html,
+        externalStyles: read.externalStyles,
         diagnostics: [
           {
             stage: "worker",
             ok: true,
             message: "Cloudflare Worker returned readable HTML.",
             url: read.finalUrl || pageUrl,
-            detail: [read.contentType, read.truncated ? "Response was truncated for safety." : ""].filter(Boolean).join(" "),
+            detail: [
+              read.contentType,
+              read.truncated ? "Response was truncated for safety." : "",
+              read.externalStyles?.colors.length
+                ? `Read ${read.externalStyles.colors.length} colour(s) and ${read.externalStyles.fonts.length} font(s) from linked stylesheets.`
+                : "",
+            ]
+              .filter(Boolean)
+              .join(" "),
           },
         ],
       };
@@ -204,7 +221,13 @@ async function readPageHtml(pageUrl: string, workerUrl: string): Promise<{ html:
 async function readViaWorker(
   pageUrl: string,
   workerUrl: string,
-): Promise<{ html: string; finalUrl?: string; contentType?: string; truncated?: boolean }> {
+): Promise<{
+  html: string;
+  finalUrl?: string;
+  contentType?: string;
+  truncated?: boolean;
+  externalStyles?: ExternalStyleSignals;
+}> {
   const endpoint = `${workerUrl.replace(/\/+$/, "")}/read`;
   const response = await fetch(endpoint, {
     method: "POST",
@@ -228,17 +251,30 @@ async function readViaWorker(
     finalUrl?: string;
     contentType?: string;
     truncated?: boolean;
+    externalStyles?: { colors?: unknown; fonts?: unknown };
   };
   if (!payload.html) {
     throw new Error("The Worker did not return page HTML.");
   }
+
+  const externalStyles = normalizeExternalStyles(payload.externalStyles);
 
   return {
     html: payload.html,
     finalUrl: payload.finalUrl,
     contentType: payload.contentType,
     truncated: payload.truncated,
+    externalStyles,
   };
+}
+
+function normalizeExternalStyles(value: unknown): ExternalStyleSignals | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as { colors?: unknown; fonts?: unknown };
+  const colors = Array.isArray(v.colors) ? v.colors.filter((c) => typeof c === "string") : [];
+  const fonts = Array.isArray(v.fonts) ? v.fonts.filter((f) => typeof f === "string") : [];
+  if (colors.length === 0 && fonts.length === 0) return undefined;
+  return { colors: colors as string[], fonts: fonts as string[] };
 }
 
 async function readDirectly(pageUrl: string): Promise<string> {
@@ -344,7 +380,11 @@ export function parseBrandSource(source: string, websiteUrl: string): BrandSetti
   };
 }
 
-export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult, "source"> {
+export function parseHtmlPage(
+  html: string,
+  pageUrl: string,
+  externalStyles?: ExternalStyleSignals,
+): Omit<JobReadResult, "source"> {
   const document = new DOMParser().parseFromString(html, "text/html");
   const title = document.querySelector("title")?.textContent?.trim();
   const companyName =
@@ -356,12 +396,13 @@ export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult
     .map((node) => node.textContent || "")
     .join("\n");
   const logoUrl = findLogoUrl(document, pageUrl);
-  const palette = findBrandPalette(document, styleText);
+  const palette = findBrandPalette(document, styleText, externalStyles?.colors || []);
   const themeColor = palette[0] || findBrandColor(document, DEFAULT_BRAND.primaryColor);
   const accentColor = pickAccentFromPalette(palette, themeColor) || deriveAccentColor(themeColor);
   const backgroundColor = palette.find((color) => colorBrightness(color) > 210) || "#fffdf8";
   const fontFamily =
     findGoogleFontHint(document) ||
+    pickExternalFont(externalStyles?.fonts || []) ||
     findFontHint(styleText) ||
     findInlineFont(document) ||
     DEFAULT_BRAND.fontFamily;
@@ -448,7 +489,7 @@ function findBrandColor(document: Document, fallback: string): string {
   return inlineColor || fallback;
 }
 
-function findBrandPalette(document: Document, styleText: string): string[] {
+function findBrandPalette(document: Document, styleText: string, externalColors: string[] = []): string[] {
   const metaColors = [
     getMeta(document, "theme-color"),
     getMeta(document, "msapplication-TileColor"),
@@ -463,8 +504,11 @@ function findBrandPalette(document: Document, styleText: string): string[] {
   const cssColors = Array.from(styleText.matchAll(/#[0-9a-f]{3,8}\b|rgb\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*\)/gi))
     .map((match) => rgbToHex(match[0]) || normalizeColor(match[0], ""))
     .filter(Boolean) as string[];
+  const fromExternal = externalColors
+    .map((color) => rgbToHex(color) || normalizeColor(expandShortHex(color), ""))
+    .filter(Boolean) as string[];
 
-  const ranked = rankColors([...inlineColors, ...cssColors]);
+  const ranked = rankColors([...inlineColors, ...cssColors, ...fromExternal]);
 
   const combined: string[] = [];
   const seen = new Set<string>();
@@ -476,6 +520,18 @@ function findBrandPalette(document: Document, styleText: string): string[] {
     }
   }
   return combined.slice(0, 6);
+}
+
+function pickExternalFont(fonts: string[]): string | undefined {
+  for (const font of fonts) {
+    const trimmed = font.trim();
+    if (!trimmed) continue;
+    if (/^(var\(|inherit|initial|system-ui|sans-serif|serif|monospace|cursive|fantasy)/i.test(trimmed)) {
+      continue;
+    }
+    return trimmed;
+  }
+  return undefined;
 }
 
 function rankColors(colors: string[]): string[] {

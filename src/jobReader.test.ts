@@ -95,6 +95,34 @@ describe("parseHtmlPage", () => {
     expect(parsed.brand.primaryColor).toBe("#0a7d4b");
   });
 
+  it("uses externalStyles colours when the inline HTML has none", () => {
+    const html = `
+      <html>
+        <head><title>Acme</title></head>
+        <body><p>Hello.</p></body>
+      </html>
+    `;
+    const parsed = parseHtmlPage(html, "https://acme.example.com", {
+      colors: ["#cccccc", "#cccccc", "#e02929", "#222222"],
+      fonts: [],
+    });
+    expect(parsed.brand.primaryColor).toBe("#e02929");
+  });
+
+  it("uses externalStyles fonts when the inline HTML has none", () => {
+    const html = `
+      <html>
+        <head><title>Acme</title></head>
+        <body><p>Hello.</p></body>
+      </html>
+    `;
+    const parsed = parseHtmlPage(html, "https://acme.example.com", {
+      colors: [],
+      fonts: ["Manrope"],
+    });
+    expect(parsed.brand.fontFamily).toBe("Manrope");
+  });
+
   it("picks up Google Fonts family from a stylesheet link", () => {
     const html = `
       <html>

@@ -7,6 +7,10 @@ const ALLOWED_ORIGINS = new Set([
 const MAX_HTML_LENGTH = 500_000;
 const MAX_TEXT_LENGTH = 60_000;
 const MAX_IMAGE_BYTES = 2_000_000;
+const MAX_STYLESHEET_FILES = 6;
+const MAX_STYLESHEET_BYTES = 600_000;
+const MAX_REPORTED_COLORS = 400;
+const MAX_REPORTED_FONTS = 20;
 
 const MODEL = "gpt-4o-mini";
 
@@ -192,13 +196,16 @@ async function readPage(request, corsHeaders) {
       return json({ error: `Unsupported content type: ${contentType || "unknown"}.` }, 415, corsHeaders);
     }
 
-    const html = (await response.text()).slice(0, MAX_HTML_LENGTH);
+    const rawHtml = await response.text();
+    const html = rawHtml.slice(0, MAX_HTML_LENGTH);
+    const externalStyles = await collectExternalStyleSignals(rawHtml, response.url || targetUrl);
     return json(
       {
         html,
         finalUrl: response.url,
         contentType,
         truncated: html.length >= MAX_HTML_LENGTH,
+        externalStyles,
       },
       200,
       corsHeaders,
@@ -467,6 +474,128 @@ function explainUpstreamStatus(status) {
     return `The website returned a server error (${status}). Try again later or paste the description.`;
   }
   return `The website responded with ${status}.`;
+}
+
+async function collectExternalStyleSignals(html, baseUrl) {
+  const empty = { colors: [], fonts: [] };
+  if (!html || typeof html !== "string") return empty;
+
+  const hrefs = collectStylesheetHrefs(html, baseUrl);
+  if (hrefs.length === 0) return empty;
+
+  const fetched = await Promise.all(
+    hrefs.map(async (href) => {
+      try {
+        const r = await fetch(href, { headers: browserLikeHeaders(href), redirect: "follow" });
+        if (!r.ok) return "";
+        const ct = (r.headers.get("content-type") || "").toLowerCase();
+        if (ct && !ct.includes("css") && !ct.includes("text/plain")) return "";
+        return await r.text();
+      } catch {
+        return "";
+      }
+    }),
+  );
+
+  let combined = "";
+  for (const text of fetched) {
+    if (!text) continue;
+    const remaining = MAX_STYLESHEET_BYTES - combined.length;
+    if (remaining <= 0) break;
+    combined += text.slice(0, remaining);
+    combined += "\n";
+  }
+
+  return {
+    colors: extractCssColors(combined),
+    fonts: extractCssFonts(combined),
+  };
+}
+
+function collectStylesheetHrefs(html, baseUrl) {
+  let base;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    return [];
+  }
+
+  const hrefs = [];
+  const seen = new Set();
+  const linkRe = /<link\b[^>]*>/gi;
+  let match;
+  while ((match = linkRe.exec(html)) && hrefs.length < MAX_STYLESHEET_FILES) {
+    const tag = match[0];
+    if (!/\brel\s*=\s*["']?[^"'>]*stylesheet[^"'>]*["']?/i.test(tag)) continue;
+    const hrefMatch = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i);
+    if (!hrefMatch) continue;
+    let resolved;
+    try {
+      resolved = new URL(hrefMatch[1], base).toString();
+    } catch {
+      continue;
+    }
+    if (seen.has(resolved)) continue;
+    if (!isAllowedStylesheetUrl(resolved, base)) continue;
+    seen.add(resolved);
+    hrefs.push(resolved);
+  }
+  return hrefs;
+}
+
+function isAllowedStylesheetUrl(resolvedUrl, base) {
+  try {
+    const target = new URL(resolvedUrl);
+    if (!["http:", "https:"].includes(target.protocol)) return false;
+    if (target.host === base.host) return true;
+    if (/(?:^|\.)fonts\.googleapis\.com$/i.test(target.host)) return true;
+    return registrableDomain(target.host) === registrableDomain(base.host);
+  } catch {
+    return false;
+  }
+}
+
+function registrableDomain(host) {
+  if (!host) return "";
+  const parts = host.toLowerCase().split(".");
+  if (parts.length < 2) return host.toLowerCase();
+  return parts.slice(-2).join(".");
+}
+
+function extractCssColors(css) {
+  if (!css) return [];
+  const colors = [];
+  const seen = new Set();
+  const colorRe =
+    /#[0-9a-f]{3,8}\b|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*[\d.]+)?\s*\)|hsla?\(\s*\d+(?:deg)?\s*,\s*\d+%\s*,\s*\d+%(?:\s*,\s*[\d.]+)?\s*\)/gi;
+  let match;
+  while ((match = colorRe.exec(css)) && colors.length < MAX_REPORTED_COLORS) {
+    const key = match[0].toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    colors.push(match[0]);
+  }
+  return colors;
+}
+
+function extractCssFonts(css) {
+  if (!css) return [];
+  const fonts = [];
+  const seen = new Set();
+  const fontRe = /font-family\s*:\s*([^;}{]+)/gi;
+  let match;
+  while ((match = fontRe.exec(css)) && fonts.length < MAX_REPORTED_FONTS) {
+    const first = match[1].split(",")[0].replace(/['"]/g, "").trim();
+    if (!first) continue;
+    if (/^(var\(|inherit|initial|system-ui|sans-serif|serif|monospace|cursive|fantasy)/i.test(first)) {
+      continue;
+    }
+    const key = first.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fonts.push(first);
+  }
+  return fonts;
 }
 
 function timingSafeEqual(a, b) {
