@@ -1,3 +1,8 @@
+// Worker secrets (set via `wrangler secret put` or the deploy workflow):
+//   OPENAI_API_KEY         — required for POST /analyse
+//   ANALYSE_SHARED_SECRET  — optional; if set, /analyse requires Bearer auth
+//   JINA_API_KEY           — optional; lifts r.jina.ai shared-IP rate limit
+
 const ALLOWED_ORIGINS = new Set([
   "https://steverowley.github.io",
   "http://localhost:5173",
