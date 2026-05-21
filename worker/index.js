@@ -18,6 +18,7 @@ const MAX_REPORTED_COLORS = 400;
 const MAX_REPORTED_FONTS = 20;
 const MAX_GENERATED_HTML_BYTES = 200_000;
 const MAX_STRUCTURED_CV_BYTES = 60_000;
+const MAX_CV_LAYOUT_DATA_URL_BYTES = 6_000_000;
 
 const MODEL = "gpt-5";
 const HTML_DESIGN_MODEL = "gpt-5";
@@ -68,6 +69,12 @@ const HTML_DESIGN_SYSTEM_PROMPT = `You are a senior brand designer producing a p
 - A screenshot of the employer's homepage so you can read their visual identity directly.
 
 Your job: produce one self-contained HTML document that presents the CV as if the employer's own in-house design team had laid it out — typography, layout, colour usage, geometry, and rhythm should feel of-a-piece with their homepage.
+
+You may receive up to two reference images, labelled in the user message:
+- Image A — the candidate's existing CV. This is the LAYOUT REFERENCE. Reproduce its structural skeleton: section order, single-column vs sidebar, where the name and contact details sit, how experience is presented. Keep the user's structural instincts recognisable in the output.
+- Image B — the employer's homepage. This is the BRAND REFERENCE. Use it for typography, colour usage, geometry, density, and mood — the visual voice.
+
+When both images are present, combine them: Image A drives where things go, Image B drives how things look. When only one is present, follow the guidance in the user message. When neither is present, choose a layout that suits the brand signals and the structured CV content. The spacing, typography, and contrast rules below override either reference when they conflict — readability and breathing room always win.
 
 HARD CONSTRAINTS — the renderer will reject HTML that violates these.
 
@@ -636,6 +643,14 @@ async function designCvHtml(request, env, corsHeaders) {
     }
   }
 
+  let cvLayoutDataUrl = "";
+  if (typeof payload?.cvLayoutDataUrl === "string" && payload.cvLayoutDataUrl.startsWith("data:image/")) {
+    if (payload.cvLayoutDataUrl.length > MAX_CV_LAYOUT_DATA_URL_BYTES) {
+      return json({ error: "cvLayoutDataUrl is too large." }, 413, corsHeaders);
+    }
+    cvLayoutDataUrl = payload.cvLayoutDataUrl;
+  }
+
   const userContent = [
     {
       type: "input_text",
@@ -646,10 +661,23 @@ async function designCvHtml(request, env, corsHeaders) {
         employerName,
         websiteUrl,
         logoDataUrl,
+        hasCvLayoutImage: Boolean(cvLayoutDataUrl),
+        hasEmployerImage: Boolean(screenshotUrl),
       }),
     },
   ];
+  if (cvLayoutDataUrl) {
+    userContent.push({
+      type: "input_text",
+      text: "REFERENCE IMAGE A — the candidate's existing CV. Use this as the LAYOUT reference: section order, hierarchy, single-column vs sidebar, where contact details sit, how the candidate presents experience. Reproduce this structural skeleton in HTML, then restyle it in the employer's brand voice.",
+    });
+    userContent.push({ type: "input_image", image_url: cvLayoutDataUrl });
+  }
   if (screenshotUrl) {
+    userContent.push({
+      type: "input_text",
+      text: "REFERENCE IMAGE B — the employer's homepage. Use this as the BRAND reference: typography (serif/sans/display, weight, case, tracking), colour usage, geometry, density, mood. Apply this visual voice to the candidate's CV layout.",
+    });
     userContent.push({ type: "input_image", image_url: screenshotUrl });
   }
 
@@ -711,7 +739,16 @@ async function designCvHtml(request, env, corsHeaders) {
   return json({ html: safeHtml, screenshotUrl }, 200, corsHeaders);
 }
 
-function buildHtmlDesignPromptText({ structuredCvJson, brand, jobTitle, employerName, websiteUrl, logoDataUrl }) {
+function buildHtmlDesignPromptText({
+  structuredCvJson,
+  brand,
+  jobTitle,
+  employerName,
+  websiteUrl,
+  logoDataUrl,
+  hasCvLayoutImage,
+  hasEmployerImage,
+}) {
   const lines = [
     `Employer name: ${employerName || brand.companyName || "Unknown"}`,
     `Employer website: ${websiteUrl || "Unknown"}`,
@@ -726,11 +763,37 @@ function buildHtmlDesignPromptText({ structuredCvJson, brand, jobTitle, employer
     `- Palette: ${(brand.palette || []).join(", ") || "Unknown"}`,
     `- Logo: ${logoDataUrl ? "supplied (embed inline as <img src=\"<logo>\">)" : "not available"}`,
     "",
+    "Reference images supplied with this message:",
+    `- Image A (candidate's existing CV — layout reference): ${hasCvLayoutImage ? "present" : "not available"}`,
+    `- Image B (employer's homepage — brand reference): ${hasEmployerImage ? "present" : "not available"}`,
+    "",
     "Structured CV (JSON — copy content verbatim, do not invent):",
     structuredCvJson,
   ];
   if (logoDataUrl) {
     lines.push("", "Logo data URL (use this exact string as the <img src>):", logoDataUrl);
+  }
+  lines.push("", "How to combine the references:");
+  if (hasCvLayoutImage && hasEmployerImage) {
+    lines.push(
+      "- Image A controls STRUCTURE: section order, single-column vs sidebar, where contact details and the headline sit, how Experience is laid out, how Skills/Education are grouped. Reproduce the candidate's structural choices.",
+      "- Image B controls VISUAL VOICE: typography (serif/sans/display, weight, case, tracking), colour usage, geometry (sharp vs rounded, the role of accent bars and rules), density, mood. Apply this voice to the structure from Image A.",
+      "- If the two references disagree on rhythm (e.g. dense vs airy), favour the LAYOUT, SPACING, AND TYPOGRAPHY rules in the system prompt — readability wins.",
+    );
+  } else if (hasCvLayoutImage) {
+    lines.push(
+      "- Image A controls STRUCTURE: section order, single-column vs sidebar, where contact details and the headline sit, how Experience is laid out. Reproduce the candidate's structural choices.",
+      "- No employer screenshot is available. Use the brand colour and font signals above to set visual voice, and follow the LAYOUT, SPACING, AND TYPOGRAPHY rules in the system prompt for everything else.",
+    );
+  } else if (hasEmployerImage) {
+    lines.push(
+      "- No candidate CV layout image is available. Choose a layout that suits the employer's brand voice from Image B and the structured CV content.",
+      "- Image B controls VISUAL VOICE: typography, colour usage, geometry, density, mood. Apply it across the layout you choose.",
+    );
+  } else {
+    lines.push(
+      "- No reference images are available. Choose a layout that suits the brand colour and font signals above and the structured CV content. Follow the LAYOUT, SPACING, AND TYPOGRAPHY rules strictly.",
+    );
   }
   lines.push(
     "",

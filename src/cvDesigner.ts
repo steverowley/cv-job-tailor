@@ -31,8 +31,18 @@ export async function designCvHtml(params: {
   employerHomepageUrl?: string;
   jobTitle?: string;
   employerName?: string;
+  cvLayoutDataUrl?: string;
 }): Promise<{ html: string; screenshotUrl: string }> {
-  const { workerUrl, sharedSecret, structuredCv, brand, employerHomepageUrl, jobTitle, employerName } = params;
+  const {
+    workerUrl,
+    sharedSecret,
+    structuredCv,
+    brand,
+    employerHomepageUrl,
+    jobTitle,
+    employerName,
+    cvLayoutDataUrl,
+  } = params;
   const base = normaliseWorkerUrl(workerUrl);
 
   let response: Response;
@@ -47,6 +57,7 @@ export async function designCvHtml(params: {
         logoUrl: brand.logoUrl || "",
         jobTitle: jobTitle || "",
         employerName: employerName || brand.companyName || "",
+        cvLayoutDataUrl: cvLayoutDataUrl || "",
       }),
     });
   } catch (error) {
