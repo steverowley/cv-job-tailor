@@ -18,6 +18,7 @@ const MAX_REPORTED_COLORS = 400;
 const MAX_REPORTED_FONTS = 20;
 const MAX_GENERATED_HTML_BYTES = 200_000;
 const MAX_STRUCTURED_CV_BYTES = 60_000;
+const MAX_CV_LAYOUT_DATA_URL_BYTES = 6_000_000;
 
 const MODEL = "gpt-5";
 const HTML_DESIGN_MODEL = "gpt-5";
@@ -69,15 +70,22 @@ const HTML_DESIGN_SYSTEM_PROMPT = `You are a senior brand designer producing a p
 
 Your job: produce one self-contained HTML document that presents the CV as if the employer's own in-house design team had laid it out — typography, layout, colour usage, geometry, and rhythm should feel of-a-piece with their homepage.
 
+You may receive up to two reference images, labelled in the user message:
+- Image A — the candidate's existing CV. This is the LAYOUT REFERENCE. Reproduce its structural skeleton: section order, single-column vs sidebar, where the name and contact details sit, how experience is presented. Keep the user's structural instincts recognisable in the output.
+- Image B — the employer's homepage. This is the BRAND REFERENCE. Use it for typography, colour usage, geometry, density, and mood — the visual voice.
+
+When both images are present, combine them: Image A drives where things go, Image B drives how things look. When only one is present, follow the guidance in the user message. When neither is present, choose a layout that suits the brand signals and the structured CV content. The spacing, typography, and contrast rules below override either reference when they conflict — readability and breathing room always win.
+
 HARD CONSTRAINTS — the renderer will reject HTML that violates these.
 
 PDF / PAGE FORMAT
 - A4 PORTRAIT only. The PDF download must be vertical. Page size is exactly 210mm × 297mm.
 - In the <style> block, declare \`@page { size: A4 portrait; margin: 0; }\`.
 - Wrap each printable page in a \`<section class="page">\` element sized exactly \`width: 210mm; height: 297mm; page-break-after: always;\` (last one can be \`page-break-after: auto;\`).
+- Each .page MUST have inner padding of at least 18mm on all four sides — nothing touches the page edge. Leave at least 12mm of clear space at the bottom of every page so the last line never collides with the boundary. Usable content area is therefore ~174mm × 261mm.
 - The content area inside each .page must stay within the page — no element may extend beyond \`210mm\` wide or push content past \`297mm\` tall. No horizontal scrolling. No landscape orientation. No rotated content.
 - Use \`print-color-adjust: exact; -webkit-print-color-adjust: exact;\` on the body so brand backgrounds render.
-- Aim for one strong page. Spill to a second .page only when senior-experience depth genuinely justifies it. Never produce more than two pages.
+- Prefer two breathing pages over one cramped page. Use one page only if the content fits comfortably with the spacing rules below. Never produce more than two pages.
 
 DOCUMENT STRUCTURE
 - Output exactly one HTML document beginning with \`<!DOCTYPE html>\`.
@@ -92,6 +100,41 @@ BRAND FIDELITY
 - Read the homepage screenshot like a designer: typography (serif/sans/display, weight, case, tracking), density, geometry (sharp vs rounded, the role of accent bars and rules), where colour is used, mood (editorial, brutalist-tech, premium-quiet, corporate-classic, playful, etc.).
 - Choose layout, typography, and colour usage so the CV would look at home on that employer's homepage. You are free to invent any layout — single column, sidebar, hero band, magazine grid, monolith — as long as it serves the brand and fits A4 portrait.
 - If you use a Google Font, pick one that matches the employer's typographic feel (serif vs sans, neutral vs display, weight).
+
+LAYOUT, SPACING, AND TYPOGRAPHY — non-negotiable design rules for a print-ready document. The output usually looks cramped at first attempt; these rules exist to prevent that.
+
+Page padding
+- .page inner padding minimum 18mm (top/right/bottom/left). Larger (22-26mm) for editorial / premium-quiet brands. Never less.
+- Reserve ≥ 12mm clear at the bottom of every page.
+
+Typography sizes (use pt or px equivalents; 1pt ≈ 1.333px)
+- Name (h1): 26-34pt. Generous weight (bold / display). Tight tracking. 12-18pt margin below.
+- Headline / tag under the name: 11-13pt. Light, oblique, or muted colour. 10-14pt below.
+- Contact line: 9.5-10.5pt. Muted colour. 14-22pt below the header block.
+- Section labels (e.g. PROFILE, EXPERIENCE, SKILLS): 9.5-10.5pt. Either uppercase with 0.12-0.18em letter-spacing OR title-case with a thin rule. Choose one treatment; never both crammed together. 8-12pt clear space below the label before content starts.
+- Role title: 11-12pt, semibold or bold. Organisation + location + dates: 10pt regular, on the line beneath the role (or right-aligned on the same baseline if the brand favours that).
+- Body text and bullets: 10.5-11pt. Line-height 1.45-1.55. Never below 10pt.
+
+Vertical rhythm (consistent rhythm beats clever density)
+- Between sections: 22-30pt of clear space. Do not run sections together with only a divider.
+- Between a section label and its first content row: 8-12pt.
+- Between role entries within Experience: 14-20pt.
+- Between bullets within a role: 4-6pt. Bullets are not paragraphs — keep them tight enough to read as a list, loose enough to scan.
+- Bullet glyph (•, –, ·, ▸ etc.): 10-14px horizontal gap to the text. Never let the glyph and the first word touch.
+
+Line length and column structure
+- Cap body line length at ~70-85 characters. If a paragraph runs wider in a single column, narrow the column or break to two columns.
+- If using a sidebar: gutter between columns ≥ 22mm. Sidebar 32-38% of the content area. Don't pack the sidebar to its edges either — its own inner padding ≥ 6mm.
+- Avoid hairline rules (< 1px / < 0.5pt). Use 1pt or thicker, in a muted brand tone. Always leave ≥ 8pt of clear space on either side of a rule.
+
+Contrast and readability
+- Body text contrast ≥ 7:1 against the page background. Muted text (dates, locations, captions) ≥ 4.5:1.
+- If a brand colour is too light to meet 4.5:1 against the page background, darken it for type and use the original only for accents, rules, or backgrounds.
+- Never use coloured text on a same-coloured background. Test the brand colour against your chosen page background before using it for type.
+
+Negative space
+- Treat whitespace as a design element, not waste. A confident CV breathes. Don't fill every gap with badges, rules, or coloured blocks.
+- Empty space at the bottom of a page is fine — it signals confidence, not unfinished work.
 
 CONTENT FIDELITY (evidence-only)
 - Copy CV content verbatim from the structured input. Do not invent skills, dates, employers, metrics, or qualifications.
@@ -600,6 +643,14 @@ async function designCvHtml(request, env, corsHeaders) {
     }
   }
 
+  let cvLayoutDataUrl = "";
+  if (typeof payload?.cvLayoutDataUrl === "string" && payload.cvLayoutDataUrl.startsWith("data:image/")) {
+    if (payload.cvLayoutDataUrl.length > MAX_CV_LAYOUT_DATA_URL_BYTES) {
+      return json({ error: "cvLayoutDataUrl is too large." }, 413, corsHeaders);
+    }
+    cvLayoutDataUrl = payload.cvLayoutDataUrl;
+  }
+
   const userContent = [
     {
       type: "input_text",
@@ -610,10 +661,23 @@ async function designCvHtml(request, env, corsHeaders) {
         employerName,
         websiteUrl,
         logoDataUrl,
+        hasCvLayoutImage: Boolean(cvLayoutDataUrl),
+        hasEmployerImage: Boolean(screenshotUrl),
       }),
     },
   ];
+  if (cvLayoutDataUrl) {
+    userContent.push({
+      type: "input_text",
+      text: "REFERENCE IMAGE A — the candidate's existing CV. Use this as the LAYOUT reference: section order, hierarchy, single-column vs sidebar, where contact details sit, how the candidate presents experience. Reproduce this structural skeleton in HTML, then restyle it in the employer's brand voice.",
+    });
+    userContent.push({ type: "input_image", image_url: cvLayoutDataUrl });
+  }
   if (screenshotUrl) {
+    userContent.push({
+      type: "input_text",
+      text: "REFERENCE IMAGE B — the employer's homepage. Use this as the BRAND reference: typography (serif/sans/display, weight, case, tracking), colour usage, geometry, density, mood. Apply this visual voice to the candidate's CV layout.",
+    });
     userContent.push({ type: "input_image", image_url: screenshotUrl });
   }
 
@@ -675,7 +739,16 @@ async function designCvHtml(request, env, corsHeaders) {
   return json({ html: safeHtml, screenshotUrl }, 200, corsHeaders);
 }
 
-function buildHtmlDesignPromptText({ structuredCvJson, brand, jobTitle, employerName, websiteUrl, logoDataUrl }) {
+function buildHtmlDesignPromptText({
+  structuredCvJson,
+  brand,
+  jobTitle,
+  employerName,
+  websiteUrl,
+  logoDataUrl,
+  hasCvLayoutImage,
+  hasEmployerImage,
+}) {
   const lines = [
     `Employer name: ${employerName || brand.companyName || "Unknown"}`,
     `Employer website: ${websiteUrl || "Unknown"}`,
@@ -690,11 +763,37 @@ function buildHtmlDesignPromptText({ structuredCvJson, brand, jobTitle, employer
     `- Palette: ${(brand.palette || []).join(", ") || "Unknown"}`,
     `- Logo: ${logoDataUrl ? "supplied (embed inline as <img src=\"<logo>\">)" : "not available"}`,
     "",
+    "Reference images supplied with this message:",
+    `- Image A (candidate's existing CV — layout reference): ${hasCvLayoutImage ? "present" : "not available"}`,
+    `- Image B (employer's homepage — brand reference): ${hasEmployerImage ? "present" : "not available"}`,
+    "",
     "Structured CV (JSON — copy content verbatim, do not invent):",
     structuredCvJson,
   ];
   if (logoDataUrl) {
     lines.push("", "Logo data URL (use this exact string as the <img src>):", logoDataUrl);
+  }
+  lines.push("", "How to combine the references:");
+  if (hasCvLayoutImage && hasEmployerImage) {
+    lines.push(
+      "- Image A controls STRUCTURE: section order, single-column vs sidebar, where contact details and the headline sit, how Experience is laid out, how Skills/Education are grouped. Reproduce the candidate's structural choices.",
+      "- Image B controls VISUAL VOICE: typography (serif/sans/display, weight, case, tracking), colour usage, geometry (sharp vs rounded, the role of accent bars and rules), density, mood. Apply this voice to the structure from Image A.",
+      "- If the two references disagree on rhythm (e.g. dense vs airy), favour the LAYOUT, SPACING, AND TYPOGRAPHY rules in the system prompt — readability wins.",
+    );
+  } else if (hasCvLayoutImage) {
+    lines.push(
+      "- Image A controls STRUCTURE: section order, single-column vs sidebar, where contact details and the headline sit, how Experience is laid out. Reproduce the candidate's structural choices.",
+      "- No employer screenshot is available. Use the brand colour and font signals above to set visual voice, and follow the LAYOUT, SPACING, AND TYPOGRAPHY rules in the system prompt for everything else.",
+    );
+  } else if (hasEmployerImage) {
+    lines.push(
+      "- No candidate CV layout image is available. Choose a layout that suits the employer's brand voice from Image B and the structured CV content.",
+      "- Image B controls VISUAL VOICE: typography, colour usage, geometry, density, mood. Apply it across the layout you choose.",
+    );
+  } else {
+    lines.push(
+      "- No reference images are available. Choose a layout that suits the brand colour and font signals above and the structured CV content. Follow the LAYOUT, SPACING, AND TYPOGRAPHY rules strictly.",
+    );
   }
   lines.push(
     "",

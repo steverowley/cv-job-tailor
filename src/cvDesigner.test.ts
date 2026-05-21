@@ -54,6 +54,7 @@ describe("designCvHtml", () => {
       employerHomepageUrl: " https://acme.example.com ",
       jobTitle: "Engineer",
       employerName: "Acme",
+      cvLayoutDataUrl: "data:image/jpeg;base64,AAAA",
     });
 
     expect(result.html).toBe("<!DOCTYPE html><html></html>");
@@ -71,6 +72,27 @@ describe("designCvHtml", () => {
     expect(body.logoUrl).toBe("https://acme.example.com/logo.png");
     expect(body.jobTitle).toBe("Engineer");
     expect(body.employerName).toBe("Acme");
+    expect(body.cvLayoutDataUrl).toBe("data:image/jpeg;base64,AAAA");
+  });
+
+  it("sends an empty cvLayoutDataUrl when the caller doesn't supply one", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ html: "<!DOCTYPE html><html></html>" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+
+    await designCvHtml({
+      workerUrl: "https://worker.example.com",
+      structuredCv: FULL_CV,
+      brand: BRAND,
+    });
+
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.cvLayoutDataUrl).toBe("");
   });
 
   it("surfaces the Worker error message on a 502", async () => {

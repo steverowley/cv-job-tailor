@@ -15,6 +15,37 @@ export async function extractCvText(file: File): Promise<string> {
   throw new Error("Please upload a PDF or DOCX CV.");
 }
 
+export async function extractFirstPageImage(file: File): Promise<string | null> {
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (extension !== "pdf" && file.type !== "application/pdf") {
+    return null;
+  }
+
+  try {
+    const buffer = await file.arrayBuffer();
+    const pdfjs = await import("pdfjs-dist");
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      "pdfjs-dist/build/pdf.worker.mjs",
+      import.meta.url,
+    ).toString();
+
+    const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+    const page = await pdf.getPage(1);
+    const viewport = page.getViewport({ scale: 1.5 });
+
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(viewport.width);
+    canvas.height = Math.floor(viewport.height);
+    const context = canvas.getContext("2d");
+    if (!context) return null;
+
+    await page.render({ canvasContext: context, viewport }).promise;
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return null;
+  }
+}
+
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(

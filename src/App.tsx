@@ -13,7 +13,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { extractCvText, looksLikeUsableCv } from "./documentParser";
+import { extractCvText, extractFirstPageImage, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
 import { analyseCvAgainstJob } from "./analysis";
 import { CvDesignerError, designCvHtml, printCvHtml } from "./cvDesigner";
@@ -46,6 +46,7 @@ export function App() {
   const [workerStatusDetail, setWorkerStatusDetail] = useState("");
   const [cvFileName, setCvFileName] = useState("");
   const [cvText, setCvText] = useState("");
+  const [cvLayoutDataUrl, setCvLayoutDataUrl] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
   const [brandGenerated, setBrandGenerated] = useState(false);
   const [designedHtml, setDesignedHtml] = useState<string>("");
@@ -157,6 +158,7 @@ export function App() {
       setStatus("reading");
       setMessage("Reading CV text locally in your browser...");
       setReadDiagnostics([]);
+      setCvLayoutDataUrl("");
       const text = await extractCvText(file);
       if (!looksLikeUsableCv(text)) {
         throw new Error(
@@ -165,6 +167,10 @@ export function App() {
       }
       setCvText(text);
       setCvFileName(file.name);
+      const layoutImage = await extractFirstPageImage(file);
+      if (layoutImage) {
+        setCvLayoutDataUrl(layoutImage);
+      }
       setMessage(`Loaded ${file.name}. Nothing has been uploaded to a server.`);
       setStatus("idle");
     } catch (error) {
@@ -215,6 +221,7 @@ export function App() {
           employerHomepageUrl: employerWebsiteUrl.trim(),
           jobTitle: result.jobTitle,
           employerName: result.employerName || workingBrand.companyName,
+          cvLayoutDataUrl,
         });
         setDesignedHtml(html);
       } catch (designError) {
