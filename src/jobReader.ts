@@ -167,13 +167,18 @@ async function readPageHtml(
           {
             stage: "worker",
             ok: true,
-            message: "Cloudflare Worker returned readable HTML.",
+            message: read.viaReaderProxy
+              ? `Worker fell back to the Reader proxy (direct fetch returned ${read.directStatus ?? "an error"}).`
+              : "Cloudflare Worker returned readable HTML.",
             url: read.finalUrl || pageUrl,
             detail: [
               read.contentType,
               read.truncated ? "Response was truncated for safety." : "",
               read.externalStyles?.colors.length
                 ? `Read ${read.externalStyles.colors.length} colour(s) and ${read.externalStyles.fonts.length} font(s) from linked stylesheets.`
+                : "",
+              read.viaReaderProxy
+                ? "The employer site blocked the direct fetch (anti-bot). Page text was retrieved via r.jina.ai; brand colour extraction may be limited."
                 : "",
             ]
               .filter(Boolean)
@@ -227,6 +232,8 @@ async function readViaWorker(
   contentType?: string;
   truncated?: boolean;
   externalStyles?: ExternalStyleSignals;
+  viaReaderProxy?: boolean;
+  directStatus?: number;
 }> {
   const endpoint = `${workerUrl.replace(/\/+$/, "")}/read`;
   const response = await fetch(endpoint, {
@@ -252,6 +259,8 @@ async function readViaWorker(
     contentType?: string;
     truncated?: boolean;
     externalStyles?: { colors?: unknown; fonts?: unknown };
+    viaReaderProxy?: boolean;
+    directStatus?: number;
   };
   if (!payload.html) {
     throw new Error("The Worker did not return page HTML.");
@@ -265,6 +274,8 @@ async function readViaWorker(
     contentType: payload.contentType,
     truncated: payload.truncated,
     externalStyles,
+    viaReaderProxy: payload.viaReaderProxy,
+    directStatus: payload.directStatus,
   };
 }
 

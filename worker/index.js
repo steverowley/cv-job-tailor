@@ -182,23 +182,35 @@ async function readPage(request, corsHeaders) {
   try {
     const body = await request.json();
     const targetUrl = validateTargetUrl(body?.url);
-    const response = await fetch(targetUrl, {
+    let response = await fetch(targetUrl, {
       headers: browserLikeHeaders(targetUrl),
       redirect: "follow",
     });
+    let usedReaderProxy = false;
+    let directStatus = response.status;
+
+    if (!response.ok && shouldRetryViaReaderProxy(response.status)) {
+      const proxied = await fetchViaReaderProxy(targetUrl).catch(() => null);
+      if (proxied && proxied.ok) {
+        response = proxied;
+        usedReaderProxy = true;
+      }
+    }
 
     if (!response.ok) {
-      return json({ error: explainUpstreamStatus(response.status) }, 502, corsHeaders);
+      return json({ error: explainUpstreamStatus(directStatus) }, 502, corsHeaders);
     }
 
     const contentType = response.headers.get("content-type") || "";
-    if (!isReadableContent(contentType)) {
+    if (!usedReaderProxy && !isReadableContent(contentType)) {
       return json({ error: `Unsupported content type: ${contentType || "unknown"}.` }, 415, corsHeaders);
     }
 
     const rawHtml = await response.text();
     const html = rawHtml.slice(0, MAX_HTML_LENGTH);
-    const externalStyles = await collectExternalStyleSignals(rawHtml, response.url || targetUrl);
+    const externalStyles = usedReaderProxy
+      ? { colors: [], fonts: [] }
+      : await collectExternalStyleSignals(rawHtml, response.url || targetUrl);
     return json(
       {
         html,
@@ -206,6 +218,8 @@ async function readPage(request, corsHeaders) {
         contentType,
         truncated: html.length >= MAX_HTML_LENGTH,
         externalStyles,
+        viaReaderProxy: usedReaderProxy,
+        directStatus,
       },
       200,
       corsHeaders,
@@ -452,6 +466,23 @@ function browserLikeHeaders(targetUrl) {
     "upgrade-insecure-requests": "1",
     ...(origin ? { referer: origin + "/" } : {}),
   };
+}
+
+function shouldRetryViaReaderProxy(status) {
+  return status === 403 || status === 410 || status === 429 || status === 451 || status >= 500;
+}
+
+async function fetchViaReaderProxy(targetUrl) {
+  const endpoint = `https://r.jina.ai/${targetUrl}`;
+  return fetch(endpoint, {
+    headers: {
+      accept: "text/html,application/xhtml+xml,*/*;q=0.8",
+      "x-return-format": "html",
+      "user-agent":
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    },
+    redirect: "follow",
+  });
 }
 
 function explainUpstreamStatus(status) {
