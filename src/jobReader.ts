@@ -484,7 +484,7 @@ function expandShortHex(value: string): string {
   return match ? `#${match[1]}${match[1]}${match[2]}${match[2]}${match[3]}${match[3]}` : trimmed;
 }
 
-function findFontHint(source: string): string | undefined {
+export function findFontHint(source: string): string | undefined {
   const match = source.match(/font-family\s*:\s*([^;}{]+)/i);
   if (!match) {
     return undefined;

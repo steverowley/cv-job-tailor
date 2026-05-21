@@ -1,31 +1,67 @@
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
+import { AnalysisResult, BrandSettings } from "./types";
 
-export async function exportElementAsPdf(element: HTMLElement, filename: string): Promise<void> {
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    backgroundColor: "#ffffff",
-    useCORS: true,
-  });
+export async function exportTailoredCvPdf(params: {
+  analysis: AnalysisResult;
+  brand: BrandSettings;
+  filename: string;
+  workerUrl: string;
+}): Promise<void> {
+  const { analysis, brand, filename, workerUrl } = params;
+  const [{ pdf }, { TailoredCvDocument }] = await Promise.all([
+    import("@react-pdf/renderer"),
+    import("./CvDocument"),
+  ]);
 
-  const pdf = new jsPDF("p", "mm", "a4");
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
-  const imageWidth = pageWidth;
-  const imageHeight = (canvas.height * imageWidth) / canvas.width;
-  let remainingHeight = imageHeight;
-  let position = 0;
+  const logoDataUrl = await loadLogoDataUrl(brand.logoUrl, workerUrl);
 
-  const image = canvas.toDataURL("image/png");
-  pdf.addImage(image, "PNG", 0, position, imageWidth, imageHeight);
-  remainingHeight -= pageHeight;
+  const blob = await pdf(
+    TailoredCvDocument({ analysis, brand, logoDataUrl }),
+  ).toBlob();
 
-  while (remainingHeight > 0) {
-    position -= pageHeight;
-    pdf.addPage();
-    pdf.addImage(image, "PNG", 0, position, imageWidth, imageHeight);
-    remainingHeight -= pageHeight;
+  triggerDownload(blob, filename);
+}
+
+async function loadLogoDataUrl(
+  logoUrl: string | undefined,
+  workerUrl: string,
+): Promise<string | undefined> {
+  if (!logoUrl) {
+    return undefined;
   }
 
-  pdf.save(filename);
+  const trimmedWorker = workerUrl.trim().replace(/\/+$/, "");
+  const proxied = trimmedWorker
+    ? `${trimmedWorker}/proxy-image?url=${encodeURIComponent(logoUrl)}`
+    : logoUrl;
+
+  try {
+    const response = await fetch(proxied);
+    if (!response.ok) {
+      return undefined;
+    }
+    const blob = await response.blob();
+    return await blobToDataUrl(blob);
+  } catch {
+    return undefined;
+  }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => resolve(String(reader.result));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

@@ -1,11 +1,3 @@
-import * as pdfjs from "pdfjs-dist";
-import mammoth from "mammoth";
-
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.mjs",
-  import.meta.url,
-).toString();
-
 export async function extractCvText(file: File): Promise<string> {
   const extension = file.name.split(".").pop()?.toLowerCase();
 
@@ -24,14 +16,18 @@ export async function extractCvText(file: File): Promise<string> {
 }
 
 async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.mjs",
+    import.meta.url,
+  ).toString();
+
   const pdf = await pdfjs.getDocument({ data: buffer }).promise;
   const pageTexts = await Promise.all(
     Array.from({ length: pdf.numPages }, async (_, index) => {
       const page = await pdf.getPage(index + 1);
       const content = await page.getTextContent();
-      return content.items
-        .map((item) => ("str" in item ? item.str : ""))
-        .join(" ");
+      return content.items.map((item) => ("str" in item ? item.str : "")).join(" ");
     }),
   );
 
@@ -39,6 +35,7 @@ async function extractPdfText(buffer: ArrayBuffer): Promise<string> {
 }
 
 async function extractDocxText(buffer: ArrayBuffer): Promise<string> {
+  const { default: mammoth } = await import("mammoth");
   const result = await mammoth.extractRawText({ arrayBuffer: buffer });
   return cleanText(result.value);
 }
@@ -49,4 +46,11 @@ export function cleanText(value: string): string {
     .replace(/[ \t]+/g, " ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+export function looksLikeUsableCv(value: string): boolean {
+  if (value.trim().length < 500) {
+    return false;
+  }
+  return /[A-Za-z]{3,}/.test(value);
 }
