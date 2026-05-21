@@ -179,15 +179,12 @@ async function readPage(request, corsHeaders) {
     const body = await request.json();
     const targetUrl = validateTargetUrl(body?.url);
     const response = await fetch(targetUrl, {
-      headers: {
-        accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.1",
-        "user-agent": "CVJobTailor/1.0 (+https://steverowley.github.io/cv-job-tailor/)",
-      },
+      headers: browserLikeHeaders(targetUrl),
       redirect: "follow",
     });
 
     if (!response.ok) {
-      return json({ error: `The website responded with ${response.status}.` }, 502, corsHeaders);
+      return json({ error: explainUpstreamStatus(response.status) }, 502, corsHeaders);
     }
 
     const contentType = response.headers.get("content-type") || "";
@@ -309,8 +306,10 @@ async function proxyImage(url, corsHeaders) {
 
   const upstream = await fetch(parsed.toString(), {
     headers: {
-      "user-agent": "CVJobTailor/1.0 (+https://steverowley.github.io/cv-job-tailor/)",
-      accept: "image/*",
+      ...browserLikeHeaders(parsed.toString()),
+      accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+      "sec-fetch-dest": "image",
+      "sec-fetch-mode": "no-cors",
     },
     redirect: "follow",
   });
@@ -420,6 +419,54 @@ function isReadableContent(contentType) {
     contentType.includes("text/plain") ||
     contentType.includes("application/xhtml+xml")
   );
+}
+
+function browserLikeHeaders(targetUrl) {
+  const origin = (() => {
+    try {
+      return new URL(targetUrl).origin;
+    } catch {
+      return "";
+    }
+  })();
+  return {
+    accept:
+      "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "accept-language": "en-GB,en;q=0.9,en-US;q=0.8",
+    "user-agent":
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    "sec-ch-ua": '"Chromium";v="130", "Not(A:Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "sec-fetch-dest": "document",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "none",
+    "sec-fetch-user": "?1",
+    "upgrade-insecure-requests": "1",
+    ...(origin ? { referer: origin + "/" } : {}),
+  };
+}
+
+function explainUpstreamStatus(status) {
+  if (status === 403) {
+    return "The website responded with 403 — it likely blocks automated requests. Paste the job description into the fallback box.";
+  }
+  if (status === 404) {
+    return "The website responded with 404 — the job page may have been removed. Check the URL or paste the description.";
+  }
+  if (status === 410) {
+    return "The website responded with 410 — the job posting has been taken down, or the site is rejecting non-browser requests. Paste the description into the fallback box.";
+  }
+  if (status === 429) {
+    return "The website responded with 429 — too many requests. Try again in a minute or paste the description.";
+  }
+  if (status === 451) {
+    return "The website responded with 451 — the content is unavailable for legal reasons.";
+  }
+  if (status >= 500) {
+    return `The website returned a server error (${status}). Try again later or paste the description.`;
+  }
+  return `The website responded with ${status}.`;
 }
 
 function timingSafeEqual(a, b) {
