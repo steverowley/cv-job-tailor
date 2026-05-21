@@ -26,15 +26,15 @@ try {
     fail(`The Worker responded, but /status returned HTTP ${response.status}.`);
   }
 
-  if (!payload || typeof payload.hasAnthropicKey !== "boolean") {
+  if (!payload || typeof payload.hasOpenAiKey !== "boolean") {
     fail("The Worker responded, but it does not look like the current cv-job-tailor Worker.");
   }
 
-  if (!payload.hasAnthropicKey) {
-    fail("The Worker is reachable, but ANTHROPIC_API_KEY is not set as a Cloudflare Worker secret.");
+  if (!payload.hasOpenAiKey) {
+    fail("The Worker is reachable, but OPENAI_API_KEY is not set as a Cloudflare Worker secret.");
   }
 
-  console.log("PASS: Worker is reachable and ANTHROPIC_API_KEY is configured.");
+  console.log("PASS: Worker is reachable and OPENAI_API_KEY is configured.");
 } catch (error) {
   const cause = error?.cause;
   const detail =

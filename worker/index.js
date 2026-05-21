@@ -8,9 +8,7 @@ const MAX_HTML_LENGTH = 500_000;
 const MAX_TEXT_LENGTH = 60_000;
 const MAX_IMAGE_BYTES = 2_000_000;
 
-const MODEL = "claude-opus-4-7";
-const MAX_OUTPUT_TOKENS = 8000;
-const ANTHROPIC_VERSION = "2023-06-01";
+const MODEL = "gpt-4o-mini";
 
 const SYSTEM_PROMPT =
   "You tailor CVs for job applications. You must be evidence-only: never invent experience, employers, qualifications, dates, tools, outcomes, or responsibilities. If a requirement is not clearly supported by the CV, mark it as a gap.";
@@ -144,7 +142,7 @@ export default {
       }
       return json(
         {
-          hasAnthropicKey: Boolean(env.ANTHROPIC_API_KEY),
+          hasOpenAiKey: Boolean(env.OPENAI_API_KEY),
           requiresSharedSecret: Boolean(env.ANALYSE_SHARED_SECRET),
         },
         200,
@@ -157,7 +155,7 @@ export default {
     }
 
     if (url.pathname === "/analyse" && request.method === "POST") {
-      return analyseWithClaude(request, env, corsHeaders);
+      return analyseWithOpenAI(request, env, corsHeaders);
     }
 
     if (url.pathname === "/proxy-image" && request.method === "GET") {
@@ -213,9 +211,9 @@ async function readPage(request, corsHeaders) {
   }
 }
 
-async function analyseWithClaude(request, env, corsHeaders) {
-  if (!env.ANTHROPIC_API_KEY) {
-    return json({ error: "The Worker is missing its ANTHROPIC_API_KEY secret." }, 500, corsHeaders);
+async function analyseWithOpenAI(request, env, corsHeaders) {
+  if (!env.OPENAI_API_KEY) {
+    return json({ error: "The Worker is missing its OPENAI_API_KEY secret." }, 500, corsHeaders);
   }
 
   if (env.ANALYSE_SHARED_SECRET) {
@@ -241,50 +239,43 @@ async function analyseWithClaude(request, env, corsHeaders) {
     return json({ error: "Both jobText and cvText are required." }, 400, corsHeaders);
   }
 
+  const userMessage = [
+    `Employer hint: ${employerHint || "Unknown"}`,
+    "JOB DESCRIPTION:",
+    jobText,
+    "CV TEXT:",
+    cvText,
+    "Return both a review and a full, usable, evidence-only CV. The fullCv field must be a complete CV document built from the existing CV content, tailored toward the job. Preserve real contact details, roles, organisations, dates, education, and certifications when present. Reorder, select, and rewrite only where supported by the CV. Do not include unsupported job requirements in the CV; put them in gaps instead.",
+  ].join("\n\n");
+
   const body = {
     model: MODEL,
-    max_tokens: MAX_OUTPUT_TOKENS,
-    system: SYSTEM_PROMPT,
-    output_config: {
+    input: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userMessage },
+    ],
+    text: {
       format: {
         type: "json_schema",
         name: "cv_tailoring_analysis",
+        strict: true,
         schema: ANALYSIS_SCHEMA,
       },
     },
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: [
-              `Employer hint: ${employerHint || "Unknown"}`,
-              "JOB DESCRIPTION:",
-              jobText,
-              "CV TEXT:",
-              cvText,
-              "Return both a review and a full, usable, evidence-only CV. The fullCv field must be a complete CV document built from the existing CV content, tailored toward the job. Preserve real contact details, roles, organisations, dates, education, and certifications when present. Reorder, select, and rewrite only where supported by the CV. Do not include unsupported job requirements in the CV; put them in gaps instead.",
-            ].join("\n\n"),
-          },
-        ],
-      },
-    ],
   };
 
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
-      "x-api-key": env.ANTHROPIC_API_KEY,
-      "anthropic-version": ANTHROPIC_VERSION,
-      "content-type": "application/json",
+      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
   });
 
   const rawText = await response.text();
   if (!response.ok) {
-    const message = extractAnthropicError(rawText) || `Claude analysis failed with HTTP ${response.status}.`;
+    const message = extractOpenAIError(rawText) || `OpenAI analysis failed with HTTP ${response.status}.`;
     return json({ error: message }, 502, corsHeaders);
   }
 
@@ -292,12 +283,12 @@ async function analyseWithClaude(request, env, corsHeaders) {
   try {
     parsed = JSON.parse(rawText);
   } catch {
-    return json({ error: "Claude returned non-JSON." }, 502, corsHeaders);
+    return json({ error: "OpenAI returned non-JSON." }, 502, corsHeaders);
   }
 
-  const analysis = extractStructuredAnalysis(parsed);
+  const analysis = extractOpenAIStructuredAnalysis(parsed);
   if (!analysis) {
-    return json({ error: "Claude returned no structured analysis." }, 502, corsHeaders);
+    return json({ error: "OpenAI returned no structured analysis." }, 502, corsHeaders);
   }
 
   return json({ analysis }, 200, corsHeaders);
@@ -348,28 +339,47 @@ async function proxyImage(url, corsHeaders) {
   });
 }
 
-function extractStructuredAnalysis(payload) {
-  if (!payload || !Array.isArray(payload.content)) {
+function extractOpenAIStructuredAnalysis(payload) {
+  if (!payload) {
     return null;
   }
 
-  for (const block of payload.content) {
-    if (block?.type === "text" && typeof block.text === "string") {
-      try {
-        return JSON.parse(block.text);
-      } catch {
-        continue;
-      }
+  if (typeof payload.output_text === "string" && payload.output_text.trim()) {
+    try {
+      return JSON.parse(payload.output_text);
+    } catch {
+      // fall through to per-block extraction
     }
-    if (block?.type === "json" && block.json) {
-      return block.json;
+  }
+
+  if (!Array.isArray(payload.output)) {
+    return null;
+  }
+
+  for (const item of payload.output) {
+    const blocks = Array.isArray(item?.content) ? item.content : [];
+    for (const block of blocks) {
+      if (block?.type === "output_text" && typeof block.text === "string") {
+        try {
+          return JSON.parse(block.text);
+        } catch {
+          continue;
+        }
+      }
+      if (block?.type === "text" && typeof block.text === "string") {
+        try {
+          return JSON.parse(block.text);
+        } catch {
+          continue;
+        }
+      }
     }
   }
 
   return null;
 }
 
-function extractAnthropicError(rawText) {
+function extractOpenAIError(rawText) {
   if (!rawText) return "";
   try {
     const parsed = JSON.parse(rawText);
