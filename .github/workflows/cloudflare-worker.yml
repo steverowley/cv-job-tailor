@@ -17,6 +17,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       ANALYSE_SHARED_SECRET: ${{ secrets.ANALYSE_SHARED_SECRET }}
+      JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,6 +29,9 @@ jobs:
       - name: Sync analyse shared secret
         if: ${{ env.ANALYSE_SHARED_SECRET != '' }}
         run: echo "$ANALYSE_SHARED_SECRET" | npx wrangler secret put ANALYSE_SHARED_SECRET
+      - name: Sync Jina API key
+        if: ${{ env.JINA_API_KEY != '' }}
+        run: echo "$JINA_API_KEY" | npx wrangler secret put JINA_API_KEY
       - name: Verify OpenAI secret
         if: ${{ env.OPENAI_API_KEY != '' }}
         run: npx wrangler secret list | grep OPENAI_API_KEY
