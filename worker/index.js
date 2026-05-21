@@ -75,9 +75,10 @@ PDF / PAGE FORMAT
 - A4 PORTRAIT only. The PDF download must be vertical. Page size is exactly 210mm × 297mm.
 - In the <style> block, declare \`@page { size: A4 portrait; margin: 0; }\`.
 - Wrap each printable page in a \`<section class="page">\` element sized exactly \`width: 210mm; height: 297mm; page-break-after: always;\` (last one can be \`page-break-after: auto;\`).
+- Each .page MUST have inner padding of at least 18mm on all four sides — nothing touches the page edge. Leave at least 12mm of clear space at the bottom of every page so the last line never collides with the boundary. Usable content area is therefore ~174mm × 261mm.
 - The content area inside each .page must stay within the page — no element may extend beyond \`210mm\` wide or push content past \`297mm\` tall. No horizontal scrolling. No landscape orientation. No rotated content.
 - Use \`print-color-adjust: exact; -webkit-print-color-adjust: exact;\` on the body so brand backgrounds render.
-- Aim for one strong page. Spill to a second .page only when senior-experience depth genuinely justifies it. Never produce more than two pages.
+- Prefer two breathing pages over one cramped page. Use one page only if the content fits comfortably with the spacing rules below. Never produce more than two pages.
 
 DOCUMENT STRUCTURE
 - Output exactly one HTML document beginning with \`<!DOCTYPE html>\`.
@@ -92,6 +93,41 @@ BRAND FIDELITY
 - Read the homepage screenshot like a designer: typography (serif/sans/display, weight, case, tracking), density, geometry (sharp vs rounded, the role of accent bars and rules), where colour is used, mood (editorial, brutalist-tech, premium-quiet, corporate-classic, playful, etc.).
 - Choose layout, typography, and colour usage so the CV would look at home on that employer's homepage. You are free to invent any layout — single column, sidebar, hero band, magazine grid, monolith — as long as it serves the brand and fits A4 portrait.
 - If you use a Google Font, pick one that matches the employer's typographic feel (serif vs sans, neutral vs display, weight).
+
+LAYOUT, SPACING, AND TYPOGRAPHY — non-negotiable design rules for a print-ready document. The output usually looks cramped at first attempt; these rules exist to prevent that.
+
+Page padding
+- .page inner padding minimum 18mm (top/right/bottom/left). Larger (22-26mm) for editorial / premium-quiet brands. Never less.
+- Reserve ≥ 12mm clear at the bottom of every page.
+
+Typography sizes (use pt or px equivalents; 1pt ≈ 1.333px)
+- Name (h1): 26-34pt. Generous weight (bold / display). Tight tracking. 12-18pt margin below.
+- Headline / tag under the name: 11-13pt. Light, oblique, or muted colour. 10-14pt below.
+- Contact line: 9.5-10.5pt. Muted colour. 14-22pt below the header block.
+- Section labels (e.g. PROFILE, EXPERIENCE, SKILLS): 9.5-10.5pt. Either uppercase with 0.12-0.18em letter-spacing OR title-case with a thin rule. Choose one treatment; never both crammed together. 8-12pt clear space below the label before content starts.
+- Role title: 11-12pt, semibold or bold. Organisation + location + dates: 10pt regular, on the line beneath the role (or right-aligned on the same baseline if the brand favours that).
+- Body text and bullets: 10.5-11pt. Line-height 1.45-1.55. Never below 10pt.
+
+Vertical rhythm (consistent rhythm beats clever density)
+- Between sections: 22-30pt of clear space. Do not run sections together with only a divider.
+- Between a section label and its first content row: 8-12pt.
+- Between role entries within Experience: 14-20pt.
+- Between bullets within a role: 4-6pt. Bullets are not paragraphs — keep them tight enough to read as a list, loose enough to scan.
+- Bullet glyph (•, –, ·, ▸ etc.): 10-14px horizontal gap to the text. Never let the glyph and the first word touch.
+
+Line length and column structure
+- Cap body line length at ~70-85 characters. If a paragraph runs wider in a single column, narrow the column or break to two columns.
+- If using a sidebar: gutter between columns ≥ 22mm. Sidebar 32-38% of the content area. Don't pack the sidebar to its edges either — its own inner padding ≥ 6mm.
+- Avoid hairline rules (< 1px / < 0.5pt). Use 1pt or thicker, in a muted brand tone. Always leave ≥ 8pt of clear space on either side of a rule.
+
+Contrast and readability
+- Body text contrast ≥ 7:1 against the page background. Muted text (dates, locations, captions) ≥ 4.5:1.
+- If a brand colour is too light to meet 4.5:1 against the page background, darken it for type and use the original only for accents, rules, or backgrounds.
+- Never use coloured text on a same-coloured background. Test the brand colour against your chosen page background before using it for type.
+
+Negative space
+- Treat whitespace as a design element, not waste. A confident CV breathes. Don't fill every gap with badges, rules, or coloured blocks.
+- Empty space at the bottom of a page is fine — it signals confidence, not unfinished work.
 
 CONTENT FIDELITY (evidence-only)
 - Copy CV content verbatim from the structured input. Do not invent skills, dates, employers, metrics, or qualifications.
