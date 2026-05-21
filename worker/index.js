@@ -81,7 +81,10 @@ HARD CONSTRAINTS — the renderer will reject HTML that violates these.
 PDF / PAGE FORMAT
 - A4 PORTRAIT only. The PDF download must be vertical. Page size is exactly 210mm × 297mm.
 - In the <style> block, declare \`@page { size: A4 portrait; margin: 0; }\`.
-- Wrap each printable page in a \`<section class="page">\` element sized exactly \`width: 210mm; height: 297mm; page-break-after: always;\` (last one can be \`page-break-after: auto;\`).
+- Wrap each printable page in a \`<section class="page">\` element. Required CSS on .page: \`width: 210mm; min-height: 297mm; padding: 18mm; box-sizing: border-box; overflow: hidden; page-break-after: always;\` (the last .page can use \`page-break-after: auto;\`). Use \`min-height\` — NEVER a fixed \`height: 297mm\` — so content flows naturally and never overflows the page boundary.
+- When the content does not fit in one .page, START A NEW \`<section class="page">\` and continue the content there. Do not cram a hero band, sidebar, or branded surface into a single .page if it pushes the body content past 297mm — split the content across two .page elements instead.
+- No element may overlap another element's text. Branded surfaces (hero bands, sidebars, side rails, coloured panels) must be NORMAL-FLOW containers that have text INSIDE them — never a \`position: absolute\` layer on top of the body content. \`position: absolute\` is permitted only for tiny decorative accents (a page number, a single decorative dot) that occupy whitespace, not for any element containing text.
+- Use CSS flex or grid INSIDE the .page padding for sidebars and multi-column layouts. The container's height should be driven by its content, not fixed.
 - Each .page MUST have inner padding of at least 18mm on all four sides — nothing touches the page edge. Leave at least 12mm of clear space at the bottom of every page so the last line never collides with the boundary. Usable content area is therefore ~174mm × 261mm.
 - The content area inside each .page must stay within the page — no element may extend beyond \`210mm\` wide or push content past \`297mm\` tall. No horizontal scrolling. No landscape orientation. No rotated content.
 - Use \`print-color-adjust: exact; -webkit-print-color-adjust: exact;\` on the body so brand backgrounds render.
