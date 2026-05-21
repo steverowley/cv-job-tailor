@@ -885,6 +885,8 @@ textarea {
   background: var(--surface-muted);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
+  max-height: calc(100vh - 220px);
+  overflow: auto;
 }
 
 .cv-page {
