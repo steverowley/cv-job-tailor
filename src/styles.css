@@ -348,13 +348,21 @@ textarea {
   margin-bottom: 6px;
 }
 
-.fallback-muted {
-  opacity: 0.55;
+.fallback-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
 }
 
-.fallback-muted input,
-.fallback-muted textarea {
-  background: var(--surface-muted);
+.fallback-head h3 {
+  margin: 0;
+}
+
+.panel-foot-action {
+  margin-top: 14px;
+  align-self: flex-start;
 }
 
 .brand-row,

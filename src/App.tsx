@@ -43,6 +43,7 @@ export function App() {
   const [cvFileName, setCvFileName] = useState("");
   const [cvText, setCvText] = useState("");
   const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
+  const [brandGenerated, setBrandGenerated] = useState(false);
   const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
   const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
   const [status, setStatus] = useState<Status>("idle");
@@ -156,6 +157,7 @@ export function App() {
           companyName:
             current.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : current.companyName,
         }));
+        setBrandGenerated(true);
       }
 
       const result = await analyseCvAgainstJob({
@@ -188,12 +190,14 @@ export function App() {
       );
       const generatedBrand = await readEmployerBrand(employerWebsiteUrl, employerBrandSource, workerUrl);
       setBrand(generatedBrand);
+      setBrandGenerated(true);
       setShowBrandFallback(false);
       setBrandMessage("Brand generated. You can still fine-tune it before export.");
       setStatus("idle");
     } catch (error) {
       if (error instanceof BrandReadError) {
         setBrand((current) => ({ ...current, ...error.fallbackBrand }));
+        setBrandGenerated(true);
         setReadDiagnostics(error.diagnostics);
       } else {
         setReadDiagnostics(getErrorDiagnostics(error));
@@ -299,23 +303,35 @@ export function App() {
                 placeholder="https://company.com/careers/role"
               />
             </label>
-            {showJobFallback || jobText || !jobUrl.trim() ? (
-              <section className={`fallback-section ${showJobFallback || !jobUrl.trim() ? "" : "fallback-muted"}`}>
-                <h3>Fallback</h3>
-                <label>
-                  Paste job description
-                  <textarea
-                    value={jobText}
-                    onChange={(event) => setJobText(event.target.value)}
-                    placeholder="Paste the job description here if the website blocks browser access."
-                  />
-                </label>
+            {showJobFallback || jobText ? (
+              <section className="fallback-section">
+                <div className="fallback-head">
+                  <h3>Paste job description</h3>
+                  <button
+                    className="text-action"
+                    type="button"
+                    onClick={() => {
+                      setShowJobFallback(false);
+                      setJobText("");
+                    }}
+                  >
+                    Hide
+                  </button>
+                </div>
+                <textarea
+                  value={jobText}
+                  onChange={(event) => setJobText(event.target.value)}
+                  placeholder="Paste the job description here. Use this if the website blocks browser access."
+                />
               </section>
             ) : (
-              <section className="fallback-section fallback-muted">
-                <h3>Fallback</h3>
-                <p className="hint">Paste fallback will appear if the URL cannot be read.</p>
-              </section>
+              <button
+                className="text-action panel-foot-action"
+                type="button"
+                onClick={() => setShowJobFallback(true)}
+              >
+                Paste job description instead
+              </button>
             )}
           </Panel>
 
@@ -348,87 +364,105 @@ export function App() {
               onClick={generateBrand}
             >
               <Palette aria-hidden="true" />
-              Generate brand
+              {brandGenerated ? "Re-generate brand" : "Generate brand"}
             </button>
             <p className="hint">{brandMessage}</p>
-            <div className="brand-preview">
-              <div className="brand-swatch-pair">
-                <span style={{ background: brand.primaryColor }} title={`Primary ${brand.primaryColor}`} />
-                <span style={{ background: brand.accentColor }} title={`Accent ${brand.accentColor}`} />
-              </div>
-              <div>
-                <strong>{brand.companyName}</strong>
-                <span>
-                  {[
-                    brand.logoUrl ? "Logo found" : "No logo detected yet",
-                    brand.fontFamily ? `${brand.fontFamily}` : "Default font",
-                  ]
-                    .filter(Boolean)
-                    .join(" / ")}
-                </span>
-              </div>
-            </div>
-            {brand.palette?.length ? (
-              <div className="palette-strip" aria-label="Extracted brand palette">
-                {brand.palette.slice(0, 5).map((color) => (
-                  <span key={color} style={{ background: color }} title={color} />
-                ))}
-              </div>
+            {brandGenerated ? (
+              <>
+                <div className="brand-preview">
+                  <div className="brand-swatch-pair">
+                    <span style={{ background: brand.primaryColor }} title={`Primary ${brand.primaryColor}`} />
+                    <span style={{ background: brand.accentColor }} title={`Accent ${brand.accentColor}`} />
+                  </div>
+                  <div>
+                    <strong>{brand.companyName}</strong>
+                    <span>
+                      {[
+                        brand.logoUrl ? "Logo found" : "No logo detected",
+                        brand.fontFamily || "Default font",
+                      ]
+                        .filter(Boolean)
+                        .join(" / ")}
+                    </span>
+                  </div>
+                </div>
+                {brand.palette?.length ? (
+                  <div className="palette-strip" aria-label="Extracted brand palette">
+                    {brand.palette.slice(0, 5).map((color) => (
+                      <span key={color} style={{ background: color }} title={color} />
+                    ))}
+                  </div>
+                ) : null}
+              </>
             ) : null}
-            <section className={`fallback-section ${showBrandFallback || employerBrandSource ? "" : "fallback-muted"}`}>
-              <h3>Manual brand fallback</h3>
-              {showBrandFallback || employerBrandSource ? (
+            {showBrandFallback ? (
+              <section className="fallback-section">
+                <div className="fallback-head">
+                  <h3>Manual brand override</h3>
+                  <button
+                    className="text-action"
+                    type="button"
+                    onClick={() => {
+                      setShowBrandFallback(false);
+                      setEmployerBrandSource("");
+                    }}
+                  >
+                    Hide
+                  </button>
+                </div>
                 <label>
                   Paste website text, HTML, or brand notes
                   <textarea
                     value={employerBrandSource}
                     onChange={(event) => setEmployerBrandSource(event.target.value)}
-                    placeholder="Optional fallback: paste the employer homepage text, page source, logo URL, or colours such as #123456."
+                    placeholder="Paste the employer homepage text, page source, logo URL, or colours such as #123456."
                   />
                 </label>
-              ) : (
-                <p className="hint">Manual brand controls will become active if the website cannot be read.</p>
-              )}
-              <div className="brand-row">
-                <label>
-                  Employer name
-                  <input
-                    value={brand.companyName}
-                    disabled={!showBrandFallback && !employerBrandSource}
-                    onChange={(event) => setBrand({ ...brand, companyName: event.target.value })}
-                  />
-                </label>
-                <label>
-                  Logo URL
-                  <input
-                    value={brand.logoUrl || ""}
-                    disabled={!showBrandFallback && !employerBrandSource}
-                    onChange={(event) => setBrand({ ...brand, logoUrl: event.target.value })}
-                    placeholder="Optional"
-                  />
-                </label>
-              </div>
-              <div className="swatches">
-                <label>
-                  Primary
-                  <input
-                    type="color"
-                    value={brand.primaryColor}
-                    disabled={!showBrandFallback && !employerBrandSource}
-                    onChange={(event) => setBrand({ ...brand, primaryColor: event.target.value })}
-                  />
-                </label>
-                <label>
-                  Accent
-                  <input
-                    type="color"
-                    value={brand.accentColor}
-                    disabled={!showBrandFallback && !employerBrandSource}
-                    onChange={(event) => setBrand({ ...brand, accentColor: event.target.value })}
-                  />
-                </label>
-              </div>
-            </section>
+                <div className="brand-row">
+                  <label>
+                    Employer name
+                    <input
+                      value={brand.companyName}
+                      onChange={(event) => setBrand({ ...brand, companyName: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Logo URL
+                    <input
+                      value={brand.logoUrl || ""}
+                      onChange={(event) => setBrand({ ...brand, logoUrl: event.target.value })}
+                      placeholder="Optional"
+                    />
+                  </label>
+                </div>
+                <div className="swatches">
+                  <label>
+                    Primary
+                    <input
+                      type="color"
+                      value={brand.primaryColor}
+                      onChange={(event) => setBrand({ ...brand, primaryColor: event.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Accent
+                    <input
+                      type="color"
+                      value={brand.accentColor}
+                      onChange={(event) => setBrand({ ...brand, accentColor: event.target.value })}
+                    />
+                  </label>
+                </div>
+              </section>
+            ) : (
+              <button
+                className="text-action panel-foot-action"
+                type="button"
+                onClick={() => setShowBrandFallback(true)}
+              >
+                Edit details manually
+              </button>
+            )}
           </Panel>
 
           <button className="primary-action" disabled={!canAnalyse || status === "analysing"} onClick={runAnalysis}>
