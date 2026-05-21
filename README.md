@@ -9,6 +9,7 @@ A static GitHub Pages web app for tailoring a CV against a job description. The 
 - Sends the CV and job text to a Cloudflare Worker that calls the OpenAI Responses API to extract job skills, match CV evidence, and propose evidence-only CV wording.
 - Shows unsupported job requirements as gaps instead of inventing experience.
 - Takes an employer website URL, extracts public brand signals when the Worker can fetch them, and exports a text-rendered branded PDF (ATS-friendly, not a raster image).
+- Generates a CV layout that is on-brand for each employer, not a fixed template: the Worker captures a screenshot of the employer homepage and asks OpenAI Vision (gpt-4o) for a structured DesignSpec (archetype, typography, geometry, colour roles, hero treatment). The renderer then picks one of several layout archetypes (editorial, sidebar classic, feature band, monolith) parameterised by that spec.
 
 ## Privacy model
 
@@ -22,7 +23,8 @@ The Worker code is in `worker/index.js` and is configured by `wrangler.toml`. Th
 
 - `GET /status` — reports whether `ANTHROPIC_API_KEY` is configured.
 - `POST /read` — fetches a public HTML page server-side.
-- `POST /analyse` — sends the job + CV text to the Anthropic Messages API and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set.
+- `POST /analyse` — sends the job + CV text to the OpenAI Responses API and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set.
+- `POST /design` — captures a Microlink screenshot of the employer homepage, sends it to OpenAI Vision (gpt-4o) with the extracted brand signals, and returns a structured DesignSpec that drives the CV layout. Same auth as `/analyse`.
 - `GET /proxy-image?url=...` — proxies an employer logo so the PDF exporter can embed it.
 
 It allows browser calls from `https://steverowley.github.io` plus local development origins.

@@ -1,21 +1,29 @@
-import { AnalysisResult, BrandSettings } from "./types";
+import { AnalysisResult, BrandSettings, DesignSpec } from "./types";
 
 export async function exportTailoredCvPdf(params: {
   analysis: AnalysisResult;
   brand: BrandSettings;
+  designSpec: DesignSpec;
   filename: string;
   workerUrl: string;
 }): Promise<void> {
-  const { analysis, brand, filename, workerUrl } = params;
+  const { analysis, brand, designSpec, filename, workerUrl } = params;
   const [{ pdf }, { TailoredCvDocument }] = await Promise.all([
     import("@react-pdf/renderer"),
     import("./CvDocument"),
   ]);
 
-  const logoDataUrl = await loadLogoDataUrl(brand.logoUrl, workerUrl);
+  const logoDataUrl = designSpec.hero.showLogo
+    ? await loadLogoDataUrl(brand.logoUrl, workerUrl)
+    : undefined;
 
   const blob = await pdf(
-    TailoredCvDocument({ analysis, brand, logoDataUrl }),
+    TailoredCvDocument({
+      analysis,
+      designSpec,
+      logoDataUrl,
+      companyDisplayName: brand.companyName,
+    }),
   ).toBlob();
 
   triggerDownload(blob, filename);
