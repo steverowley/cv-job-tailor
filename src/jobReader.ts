@@ -26,7 +26,6 @@ const DEFAULT_BRAND: BrandSettings = {
   backgroundColor: "#fffdf8",
   textColor: "#25221e",
   fontFamily: "Georgia",
-  layoutStyle: "editorial",
   palette: ["#1b4d3e", "#d3a84f", "#fffdf8"],
 };
 
@@ -332,15 +331,15 @@ export function parseBrandSource(source: string, websiteUrl: string): BrandSetti
     DEFAULT_BRAND.companyName;
   const colors = Array.from(source.matchAll(/#[0-9a-f]{3,8}\b/gi)).map((match) => match[0]);
 
+  const primary = normalizeColor(colors[0] || "", DEFAULT_BRAND.primaryColor);
   return {
     companyName,
     logoUrl: source.match(/https?:\/\/\S+\.(?:png|jpg|jpeg|svg|webp|ico)/i)?.[0],
-    primaryColor: normalizeColor(colors[0] || "", DEFAULT_BRAND.primaryColor),
-    accentColor: normalizeColor(colors[1] || "", deriveAccentColor(colors[0] || DEFAULT_BRAND.primaryColor)),
+    primaryColor: primary,
+    accentColor: normalizeColor(colors[1] || "", deriveAccentColor(primary)),
     backgroundColor: normalizeColor(colors[2] || "", "#fffdf8"),
     textColor: pickReadableText(colors[2] || "#fffdf8"),
     fontFamily: findFontHint(source) || DEFAULT_BRAND.fontFamily,
-    layoutStyle: chooseLayoutStyle(colors[0] || DEFAULT_BRAND.primaryColor, source),
     palette: colors.slice(0, 6),
   };
 }
@@ -359,8 +358,13 @@ export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult
   const logoUrl = findLogoUrl(document, pageUrl);
   const palette = findBrandPalette(document, styleText);
   const themeColor = palette[0] || findBrandColor(document, DEFAULT_BRAND.primaryColor);
+  const accentColor = pickAccentFromPalette(palette, themeColor) || deriveAccentColor(themeColor);
   const backgroundColor = palette.find((color) => colorBrightness(color) > 210) || "#fffdf8";
-  const fontFamily = findFontHint(styleText) || findInlineFont(document) || DEFAULT_BRAND.fontFamily;
+  const fontFamily =
+    findGoogleFontHint(document) ||
+    findFontHint(styleText) ||
+    findInlineFont(document) ||
+    DEFAULT_BRAND.fontFamily;
 
   document.querySelectorAll("script, style, noscript, svg").forEach((node) => node.remove());
   const text = document.body?.innerText || document.documentElement.textContent || "";
@@ -373,12 +377,11 @@ export function parseHtmlPage(html: string, pageUrl: string): Omit<JobReadResult
       companyName,
       logoUrl,
       primaryColor: themeColor,
-      accentColor: palette[1] || deriveAccentColor(themeColor),
+      accentColor,
       backgroundColor,
       textColor: pickReadableText(backgroundColor),
       fontFamily,
-      layoutStyle: chooseLayoutStyle(themeColor, `${styleText}\n${text.slice(0, 3000)}`),
-      palette: palette.length ? palette : [themeColor, deriveAccentColor(themeColor), backgroundColor],
+      palette: palette.length ? palette : [themeColor, accentColor, backgroundColor],
     },
   };
 }
@@ -449,7 +452,10 @@ function findBrandPalette(document: Document, styleText: string): string[] {
   const metaColors = [
     getMeta(document, "theme-color"),
     getMeta(document, "msapplication-TileColor"),
-  ].filter(Boolean) as string[];
+  ]
+    .map((color) => (color ? normalizeColor(expandShortHex(color), "") : ""))
+    .filter((color) => /^#[0-9a-f]{6}$/i.test(color))
+    .map((color) => color.toLowerCase());
   const inlineColors = Array.from(document.querySelectorAll<HTMLElement>("[style]"))
     .flatMap((element) => [element.style.backgroundColor, element.style.color, element.style.borderColor])
     .map(rgbToHex)
@@ -458,7 +464,18 @@ function findBrandPalette(document: Document, styleText: string): string[] {
     .map((match) => rgbToHex(match[0]) || normalizeColor(match[0], ""))
     .filter(Boolean) as string[];
 
-  return rankColors([...metaColors, ...inlineColors, ...cssColors]);
+  const ranked = rankColors([...inlineColors, ...cssColors]);
+
+  const combined: string[] = [];
+  const seen = new Set<string>();
+  for (const color of [...metaColors, ...ranked]) {
+    const key = color.toLowerCase();
+    if (!seen.has(key)) {
+      combined.push(key);
+      seen.add(key);
+    }
+  }
+  return combined.slice(0, 6);
 }
 
 function rankColors(colors: string[]): string[] {
@@ -472,10 +489,28 @@ function rankColors(colors: string[]): string[] {
     })
     .forEach((color) => counts.set(color.toLowerCase(), (counts.get(color.toLowerCase()) || 0) + 1));
 
-  return Array.from(counts.entries())
-    .sort((a, b) => b[1] - a[1])
+  const entries = Array.from(counts.entries());
+  const saturated = entries.filter(([color]) => hexToHsl(color).s >= 18);
+  const greys = entries.filter(([color]) => hexToHsl(color).s < 18);
+
+  const sortByCount = (a: [string, number], b: [string, number]) => b[1] - a[1];
+  return [...saturated.sort(sortByCount), ...greys.sort(sortByCount)]
     .map(([color]) => color)
     .slice(0, 6);
+}
+
+function pickAccentFromPalette(palette: string[], primary: string): string | undefined {
+  const primaryHsl = hexToHsl(primary);
+  for (const candidate of palette) {
+    if (candidate.toLowerCase() === primary.toLowerCase()) continue;
+    const candidateHsl = hexToHsl(candidate);
+    const hueDelta = Math.abs(candidateHsl.h - primaryHsl.h);
+    const distinct = Math.min(hueDelta, 360 - hueDelta) > 25 || Math.abs(candidateHsl.l - primaryHsl.l) > 20;
+    if (candidateHsl.s >= 18 && distinct) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 function expandShortHex(value: string): string {
@@ -509,18 +544,21 @@ function findInlineFont(document: Document): string | undefined {
     .find(Boolean);
 }
 
-function chooseLayoutStyle(primaryColor: string, source: string): BrandSettings["layoutStyle"] {
-  const text = source.toLowerCase();
-  if (/engineering|platform|developer|data|security|cloud|api|technology|software/.test(text)) {
-    return "technical";
+export function findGoogleFontHint(document: Document): string | undefined {
+  const links = Array.from(document.querySelectorAll<HTMLLinkElement>('link[href*="fonts.googleapis.com"]'));
+  for (const link of links) {
+    const href = link.getAttribute("href") || "";
+    const families = Array.from(href.matchAll(/family=([^&]+)/g)).map((match) => {
+      const raw = decodeURIComponent(match[1]).replace(/\+/g, " ").split(":")[0];
+      return raw.trim();
+    });
+    for (const family of families) {
+      if (family && !/^(system-ui|sans-serif|serif|monospace|inherit|initial)$/i.test(family)) {
+        return family;
+      }
+    }
   }
-  if (/university|research|journal|school|academy|institute|policy|public/.test(text)) {
-    return "classic";
-  }
-  if (colorBrightness(primaryColor) < 72) {
-    return "executive";
-  }
-  return "editorial";
+  return undefined;
 }
 
 function pickReadableText(backgroundColor: string): string {
@@ -547,14 +585,50 @@ function rgbToHex(value: string): string | undefined {
     .join("")}`;
 }
 
-function deriveAccentColor(primary: string): string {
-  const normalized = normalizeColor(primary, DEFAULT_BRAND.primaryColor).replace("#", "").slice(0, 6);
-  const red = Number.parseInt(normalized.slice(0, 2), 16);
-  const green = Number.parseInt(normalized.slice(2, 4), 16);
-  const blue = Number.parseInt(normalized.slice(4, 6), 16);
-  const brightness = (red * 299 + green * 587 + blue * 114) / 1000;
+export function deriveAccentColor(primary: string): string {
+  const normalized = normalizeColor(expandShortHex(primary), DEFAULT_BRAND.primaryColor);
+  const { h, s, l } = hexToHsl(normalized);
 
-  return brightness > 150 ? "#1f3a34" : "#f0c75e";
+  if (s < 12) {
+    const targetL = l > 50 ? Math.max(15, l - 38) : Math.min(85, l + 38);
+    return hslToHex(h, Math.max(s, 4), targetL);
+  }
+
+  const newH = (h + 150) % 360;
+  const newS = Math.min(85, Math.max(45, s));
+  const newL = l > 60 ? Math.max(25, l - 22) : Math.min(72, l + 18);
+  return hslToHex(newH, newS, newL);
+}
+
+function hexToHsl(hex: string): { h: number; s: number; l: number } {
+  const value = expandShortHex(hex).replace("#", "").slice(0, 6).padEnd(6, "0");
+  const r = Number.parseInt(value.slice(0, 2), 16) / 255;
+  const g = Number.parseInt(value.slice(2, 4), 16) / 255;
+  const b = Number.parseInt(value.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  let h = 0;
+  let s = 0;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h /= 6;
+  }
+  return { h: h * 360, s: s * 100, l: l * 100 };
+}
+
+function hslToHex(h: number, s: number, l: number): string {
+  const sN = s / 100;
+  const lN = l / 100;
+  const k = (n: number) => (n + h / 30) % 12;
+  const a = sN * Math.min(lN, 1 - lN);
+  const f = (n: number) => lN - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  const toHex = (n: number) => Math.round(255 * f(n)).toString(16).padStart(2, "0");
+  return `#${toHex(0)}${toHex(8)}${toHex(4)}`;
 }
 
 function formatError(error: unknown): string {

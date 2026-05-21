@@ -23,6 +23,7 @@ const DEFAULT_BRAND: BrandSettings = {
   companyName: "Target employer",
   primaryColor: "#1b4d3e",
   accentColor: "#d3a84f",
+  fontFamily: "Georgia",
 };
 
 const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
@@ -351,11 +352,17 @@ export function App() {
             </button>
             <p className="hint">{brandMessage}</p>
             <div className="brand-preview">
-              <div className="brand-swatch" style={{ background: brand.primaryColor }} />
+              <div className="brand-swatch-pair">
+                <span style={{ background: brand.primaryColor }} title={`Primary ${brand.primaryColor}`} />
+                <span style={{ background: brand.accentColor }} title={`Accent ${brand.accentColor}`} />
+              </div>
               <div>
                 <strong>{brand.companyName}</strong>
                 <span>
-                  {[brand.logoUrl ? "Logo found" : "No logo detected yet", brand.layoutStyle || "editorial"]
+                  {[
+                    brand.logoUrl ? "Logo found" : "No logo detected yet",
+                    brand.fontFamily ? `${brand.fontFamily}` : "Default font",
+                  ]
                     .filter(Boolean)
                     .join(" / ")}
                 </span>
@@ -628,7 +635,7 @@ function CvPreview({
     <section className="preview-shell">
       <div
         ref={refElement}
-        className={`cv-page cv-document cv-${brand.layoutStyle || "editorial"}`}
+        className="cv-page cv-document"
         style={
           {
             "--brand-primary": brand.primaryColor,
