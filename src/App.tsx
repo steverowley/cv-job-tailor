@@ -77,7 +77,7 @@ export function App() {
         });
         const rawText = await response.text();
         const payload = rawText
-          ? (JSON.parse(rawText) as { error?: string; hasAnthropicKey?: boolean })
+          ? (JSON.parse(rawText) as { error?: string; hasOpenAiKey?: boolean })
           : {};
         if (!response.ok) {
           setWorkerStatusDetail(
@@ -87,7 +87,7 @@ export function App() {
           return;
         }
         setWorkerStatusDetail(`Checked ${endpoint}.`);
-        setWorkerStatus(payload.hasAnthropicKey ? "configured" : "missing-key");
+        setWorkerStatus(payload.hasOpenAiKey ? "configured" : "missing-key");
       } catch (error) {
         if (!controller.signal.aborted) {
           setWorkerStatus("unreachable");
@@ -233,18 +233,17 @@ export function App() {
     <main className="app-shell">
       <section className="hero">
         <div>
-          <p className="section-label">GitHub Pages CV tailoring</p>
-          <h1>Turn a job post and your existing CV into an evidence-only branded PDF.</h1>
+          <p className="section-label">CV Job Tailor</p>
+          <h1>Tailor your CV against any job — with evidence, not invention.</h1>
           <p className="hero-copy">
-            The app runs in the browser, sends CV and job text to a Cloudflare Worker that calls Claude,
-            keeps CV parsing local, and asks you to approve the result before export.
+            Drop a job URL, upload your CV, and get a branded PDF. The OpenAI call runs from a Cloudflare Worker, parsing stays in the browser, and unsupported requirements surface as gaps instead of fiction.
           </p>
         </div>
         <div className="privacy-panel">
           <BadgeCheck aria-hidden="true" />
           <div>
             <strong>Static by design</strong>
-            <span>No backend, no database, no saved CV history.</span>
+            <span>No backend. No database. No saved history.</span>
           </div>
         </div>
       </section>
@@ -253,7 +252,7 @@ export function App() {
 
       <section className="workspace-grid">
         <div className="input-stack">
-          <Panel icon={<Server />} title="1. Cloudflare Worker">
+          <Panel icon={<Server />} title="Cloudflare Worker" step="01">
             {hasConfiguredWorkerUrl && !isEditingWorkerUrl ? (
               <div className="config-summary">
                 <BadgeCheck aria-hidden="true" />
@@ -285,11 +284,11 @@ export function App() {
               </>
             )}
             <p className="hint">
-              The Worker holds the Anthropic API key, reads career pages that block GitHub Pages, and proxies employer logos for the PDF. The app cannot analyse a CV without it.
+              Required. The Worker holds the OpenAI key, reads career pages that block GitHub Pages, and proxies employer logos for the PDF.
             </p>
           </Panel>
 
-          <Panel icon={<Link />} title="2. Job description">
+          <Panel icon={<Link />} title="Job description" step="02">
             <label>
               Job URL
               <input
@@ -319,7 +318,7 @@ export function App() {
             )}
           </Panel>
 
-          <Panel icon={<Upload />} title="3. Upload CV">
+          <Panel icon={<Upload />} title="Upload CV" step="03">
             <label className="upload-box">
               <input
                 type="file"
@@ -332,7 +331,7 @@ export function App() {
             {cvText ? <p className="hint">{cvText.length.toLocaleString()} characters extracted locally.</p> : null}
           </Panel>
 
-          <Panel icon={<Palette />} title="4. Employer brand">
+          <Panel icon={<Palette />} title="Employer brand" step="04">
             <label>
               Employer website
               <input
@@ -527,10 +526,11 @@ function getErrorDiagnostics(error: unknown): ReadDiagnostic[] {
   return Array.isArray(diagnostics) ? (diagnostics as ReadDiagnostic[]) : [];
 }
 
-function Panel(props: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Panel(props: { icon: React.ReactNode; title: string; step?: string; children: React.ReactNode }) {
   return (
     <section className="panel">
       <div className="panel-title">
+        {props.step ? <span className="panel-step">{props.step}</span> : null}
         {props.icon}
         <h2>{props.title}</h2>
       </div>
@@ -555,10 +555,10 @@ function formatWorkerStatus(status: WorkerStatus, detail = ""): string {
     return "Checking the configured Worker...";
   }
   if (status === "configured") {
-    return "Worker reachable. Anthropic key present. Ready to analyse.";
+    return "Worker reachable. OpenAI key present. Ready to analyse.";
   }
   if (status === "missing-key") {
-    return `Worker reachable, but the ANTHROPIC_API_KEY secret is not configured. ${detail}`.trim();
+    return `Worker reachable, but the OPENAI_API_KEY secret is not configured. ${detail}`.trim();
   }
   if (status === "unreachable") {
     return `The Worker could not be reached from this browser. ${detail}`.trim();
@@ -570,8 +570,9 @@ function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
   if (!analysis) {
     return (
       <section className="panel empty-state">
-        <h2>Review will appear here</h2>
-        <p>Once analysed, you will see skills, evidence matches, proposed wording, and gaps before export.</p>
+        <span className="empty-state-eyebrow">Review</span>
+        <h2>Skills, evidence, and gaps will appear here.</h2>
+        <p>Run the analysis to see how the job's requirements map onto your CV — and what's missing.</p>
       </section>
     );
   }
