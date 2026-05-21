@@ -1,6 +1,9 @@
 // Worker secrets (set via `wrangler secret put` or the deploy workflow):
 //   OPENAI_API_KEY                 — required for POST /analyse and POST /design-cv-html
-//   ANALYSE_SHARED_SECRET          — optional; if set, /analyse and /design-cv-html require Bearer auth
+//   ANALYSE_SHARED_SECRET          — optional; if set, /analyse and /design-cv-html require Bearer auth.
+//                                    Note: the static site embeds this value in its JS bundle (VITE_ANALYSE_SHARED_SECRET),
+//                                    so it is OBSCURITY, not a secret. Rotate it if abuse appears, and rely on
+//                                    ALLOWED_ORIGINS + per-IP rate limiting (e.g. Cloudflare WAF) as the real boundary.
 //   JINA_API_KEY                   — optional; lifts r.jina.ai shared-IP rate limit
 
 const ALLOWED_ORIGINS = new Set([
@@ -528,8 +531,19 @@ async function analyseWithOpenAI(request, env, corsHeaders) {
     return json({ error: "Request body must be JSON." }, 400, corsHeaders);
   }
 
-  const jobText = typeof payload?.jobText === "string" ? payload.jobText.slice(0, MAX_TEXT_LENGTH) : "";
-  const cvText = typeof payload?.cvText === "string" ? payload.cvText.slice(0, MAX_TEXT_LENGTH) : "";
+  const rawJobText = typeof payload?.jobText === "string" ? payload.jobText : "";
+  const rawCvText = typeof payload?.cvText === "string" ? payload.cvText : "";
+  if (rawJobText.length > MAX_TEXT_LENGTH || rawCvText.length > MAX_TEXT_LENGTH) {
+    return json(
+      {
+        error: `jobText and cvText must each be ${MAX_TEXT_LENGTH} characters or fewer. Trim the inputs and try again.`,
+      },
+      413,
+      corsHeaders,
+    );
+  }
+  const jobText = rawJobText;
+  const cvText = rawCvText;
   const employerHint = typeof payload?.employerHint === "string" ? payload.employerHint.slice(0, 200) : "";
 
   if (!jobText.trim() || !cvText.trim()) {
@@ -891,7 +905,7 @@ function sanitizeGeneratedHtml(value) {
   if (!/^<!doctype html/i.test(trimmed)) {
     throw new Error("html must start with <!DOCTYPE html>.");
   }
-  const lowered = trimmed.toLowerCase();
+  const decoded = decodeHtmlAndCssEscapes(trimmed).toLowerCase();
   const forbiddenSubstrings = [
     "<script",
     "</script",
@@ -903,18 +917,42 @@ function sanitizeGeneratedHtml(value) {
     "http-equiv",
     "javascript:",
     "vbscript:",
+    "data:text/html",
+    "expression(",
   ];
   for (const needle of forbiddenSubstrings) {
-    if (lowered.includes(needle)) {
+    if (decoded.includes(needle)) {
       throw new Error(`html contains forbidden token "${needle}".`);
     }
   }
   // HTML5 accepts both whitespace and "/" between attributes, so an `\s`-only
   // check misses payloads such as `<svg/onload=alert(1)>`.
-  if (/[\s/]on[a-z]+\s*=/i.test(trimmed)) {
+  if (/[\s/]on[a-z][a-z0-9-]{1,30}\s*=\s*["'`]/i.test(trimmed)) {
     throw new Error("html contains an event-handler attribute (on*=).");
   }
   return injectGeneratedHtmlCsp(trimmed);
+}
+
+function decodeHtmlAndCssEscapes(input) {
+  let out = input.replace(/\\([0-9a-f]{1,6})\s?/gi, (_, hex) => {
+    const code = parseInt(hex, 16);
+    if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff) return "";
+    try {
+      return String.fromCodePoint(code);
+    } catch {
+      return "";
+    }
+  });
+  out = out.replace(/\\(.)/g, (_, ch) => ch);
+  out = out.replace(/&#x([0-9a-f]+);?/gi, (_, hex) => {
+    const code = parseInt(hex, 16);
+    return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "";
+  });
+  out = out.replace(/&#(\d+);?/g, (_, dec) => {
+    const code = parseInt(dec, 10);
+    return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : "";
+  });
+  return out;
 }
 
 function injectGeneratedHtmlCsp(html) {
@@ -975,26 +1013,26 @@ async function fetchMicrolinkScreenshot(targetUrl) {
 
 async function proxyImage(url, corsHeaders) {
   const target = url.searchParams.get("url") || "";
-  let parsed;
+  let validated;
   try {
-    parsed = new URL(target);
-  } catch {
-    return json({ error: "Invalid image URL." }, 400, corsHeaders);
+    validated = validateTargetUrl(target);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : "Invalid image URL." }, 400, corsHeaders);
   }
 
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    return json({ error: "Only http and https URLs are supported." }, 400, corsHeaders);
-  }
-
-  const upstream = await fetch(parsed.toString(), {
+  const upstream = await fetch(validated, {
     headers: {
-      ...browserLikeHeaders(parsed.toString()),
+      ...browserLikeHeaders(validated),
       accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
       "sec-fetch-dest": "image",
       "sec-fetch-mode": "no-cors",
     },
-    redirect: "follow",
+    redirect: "manual",
   });
+
+  if (upstream.status >= 300 && upstream.status < 400) {
+    return json({ error: "Image URL redirected; refusing to follow." }, 502, corsHeaders);
+  }
 
   if (!upstream.ok) {
     return json({ error: `Image fetch failed with ${upstream.status}.` }, 502, corsHeaders);
@@ -1091,7 +1129,31 @@ function validateTargetUrl(value) {
     throw new Error("Only http and https URLs are supported.");
   }
 
+  if (isPrivateOrLocalHost(targetUrl.hostname)) {
+    throw new Error("URLs pointing at internal or private hosts are not allowed.");
+  }
+
   return targetUrl.toString();
+}
+
+function isPrivateOrLocalHost(hostname) {
+  if (!hostname) return true;
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
+    return true;
+  }
+  if (/^(?:0|10|127)\./.test(host)) return true;
+  if (/^169\.254\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  const m172 = host.match(/^172\.(\d{1,3})\./);
+  if (m172) {
+    const second = Number(m172[1]);
+    if (second >= 16 && second <= 31) return true;
+  }
+  if (host === "::" || host === "::1") return true;
+  if (/^fe[89ab][0-9a-f]:/i.test(host)) return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(host)) return true;
+  return false;
 }
 
 function isReadableContent(contentType) {
@@ -1240,19 +1302,15 @@ function isAllowedStylesheetUrl(resolvedUrl, base) {
   try {
     const target = new URL(resolvedUrl);
     if (!["http:", "https:"].includes(target.protocol)) return false;
-    if (target.host === base.host) return true;
-    if (/(?:^|\.)fonts\.googleapis\.com$/i.test(target.host)) return true;
-    return registrableDomain(target.host) === registrableDomain(base.host);
+    if (isPrivateOrLocalHost(target.hostname)) return false;
+    const targetHost = target.host.toLowerCase();
+    const baseHost = base.host.toLowerCase();
+    if (targetHost === baseHost) return true;
+    if (/(?:^|\.)fonts\.googleapis\.com$/i.test(targetHost)) return true;
+    return targetHost.endsWith(`.${baseHost}`) || baseHost.endsWith(`.${targetHost}`);
   } catch {
     return false;
   }
-}
-
-function registrableDomain(host) {
-  if (!host) return "";
-  const parts = host.toLowerCase().split(".");
-  if (parts.length < 2) return host.toLowerCase();
-  return parts.slice(-2).join(".");
 }
 
 function extractCssColors(css) {
@@ -1260,7 +1318,7 @@ function extractCssColors(css) {
   const colors = [];
   const seen = new Set();
   const colorRe =
-    /#[0-9a-f]{3,8}\b|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*[\d.]+)?\s*\)|hsla?\(\s*\d+(?:deg)?\s*,\s*\d+%\s*,\s*\d+%(?:\s*,\s*[\d.]+)?\s*\)/gi;
+    /#[0-9a-f]{3,8}(?![0-9a-f])|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+(?:\s*,\s*[\d.]+)?\s*\)|hsla?\(\s*\d+(?:deg)?\s*,\s*\d+%\s*,\s*\d+%(?:\s*,\s*[\d.]+)?\s*\)/gi;
   let match;
   while ((match = colorRe.exec(css)) && colors.length < MAX_REPORTED_COLORS) {
     const key = match[0].toLowerCase();
@@ -1292,12 +1350,13 @@ function extractCssFonts(css) {
 }
 
 function timingSafeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) {
-    return false;
-  }
-  let result = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const len = Math.max(a.length, b.length, 1);
+  let result = a.length ^ b.length;
+  for (let i = 0; i < len; i += 1) {
+    const ac = i < a.length ? a.charCodeAt(i) : 0;
+    const bc = i < b.length ? b.charCodeAt(i) : 0;
+    result |= ac ^ bc;
   }
   return result === 0;
 }

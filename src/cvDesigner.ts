@@ -114,21 +114,61 @@ export function printCvHtml(html: string, fileName: string): void {
     );
   }
 
+  try {
+    printWindow.opener = null;
+  } catch {
+    // Some browsers disallow reassigning opener; the popup remains linked but the
+    // sandboxed iframe preview is the canonical render path.
+  }
+
   const titled = ensureDocumentTitle(html, fileName);
   printWindow.document.open();
   printWindow.document.write(titled);
   printWindow.document.close();
 
   const triggerPrint = () => {
-    printWindow.focus();
-    printWindow.print();
+    try {
+      printWindow.focus();
+      printWindow.print();
+    } catch {
+      // Print can throw if the user closed the popup mid-flow; swallow it.
+    }
   };
 
-  if (printWindow.document.readyState === "complete") {
-    setTimeout(triggerPrint, 50);
-  } else {
-    printWindow.addEventListener("load", () => setTimeout(triggerPrint, 50));
-  }
+  let printed = false;
+  const printOnce = () => {
+    if (printed) return;
+    printed = true;
+    triggerPrint();
+  };
+
+  const waitForReady = async () => {
+    if (printWindow.document.readyState !== "complete") {
+      await new Promise<void>((resolve) => {
+        const onReady = () => {
+          if (printWindow.document.readyState === "complete") {
+            printWindow.removeEventListener("load", onReady);
+            printWindow.document.removeEventListener("readystatechange", onReady);
+            resolve();
+          }
+        };
+        printWindow.addEventListener("load", onReady);
+        printWindow.document.addEventListener("readystatechange", onReady);
+        onReady();
+      });
+    }
+    const fonts = (printWindow.document as Document & { fonts?: { ready?: Promise<unknown> } }).fonts;
+    if (fonts?.ready) {
+      try {
+        await fonts.ready;
+      } catch {
+        // Font loading failures shouldn't block printing.
+      }
+    }
+  };
+
+  waitForReady().then(printOnce, printOnce);
+  setTimeout(printOnce, 5000);
 }
 
 function ensureDocumentTitle(html: string, fileName: string): string {
@@ -140,5 +180,14 @@ function ensureDocumentTitle(html: string, fileName: string): string {
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (match) => `${match}${titleTag}`);
   }
-  return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${titleTag}</head>`);
+  if (/<html[^>]*>/i.test(html)) {
+    return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${titleTag}</head>`);
+  }
+  if (/<body[^>]*>/i.test(html)) {
+    return html.replace(/<body[^>]*>/i, (match) => `<head>${titleTag}</head>${match}`);
+  }
+  if (/<!doctype html[^>]*>/i.test(html)) {
+    return html.replace(/<!doctype html[^>]*>/i, (match) => `${match}<head>${titleTag}</head>`);
+  }
+  return `<head>${titleTag}</head>${html}`;
 }

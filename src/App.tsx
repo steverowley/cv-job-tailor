@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { extractCvText, extractFirstPageImage, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
-import { analyseCvAgainstJob } from "./analysis";
+import { AnalysisError, analyseCvAgainstJob } from "./analysis";
 import { CvDesignerError, DesignInputs, designCvHtml, printCvHtml } from "./cvDesigner";
 import { CvHtmlPreview } from "./CvHtmlPreview";
 import { AnalysisResult, BrandSettings } from "./types";
@@ -31,6 +31,9 @@ const DEFAULT_BRAND: BrandSettings = {
 };
 
 const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
+// NOTE: this token is inlined into the static JS bundle and is therefore visible to any visitor.
+// It is anti-abuse obscurity, not a secret. The real boundary is ALLOWED_ORIGINS on the Worker
+// plus Cloudflare-side rate limiting. Do not rely on this for confidentiality.
 const ANALYSE_SHARED_SECRET = import.meta.env.VITE_ANALYSE_SHARED_SECRET || "";
 
 export function App() {
@@ -160,6 +163,11 @@ export function App() {
       setMessage("Reading CV text locally in your browser...");
       setReadDiagnostics([]);
       setCvLayoutDataUrl("");
+      setCvText("");
+      setCvFileName("");
+      setAnalysis(null);
+      setDesignedHtml("");
+      setDesignInputs(null);
       const text = await extractCvText(file);
       if (!looksLikeUsableCv(text)) {
         throw new Error(
@@ -175,77 +183,95 @@ export function App() {
       setMessage(`Loaded ${file.name}. Nothing has been uploaded to a server.`);
       setStatus("idle");
     } catch (error) {
+      setCvText("");
+      setCvFileName("");
+      setCvLayoutDataUrl("");
       showError(error);
     }
   }
 
   async function runAnalysis() {
-    try {
-      setStatus("analysing");
-      setMessage("Reading the job details and comparing them with the CV...");
-      setReadDiagnostics([]);
-      setDesignedHtml("");
-      setDesignInputs(null);
-      const job = await readJobDescription(jobUrl, jobText, workerUrl);
-      if (job.diagnostics?.length) {
-        setReadDiagnostics(job.diagnostics);
-      }
-      let workingBrand = brand;
-      if (!employerWebsiteUrl.trim()) {
-        workingBrand = {
-          ...brand,
-          ...job.brand,
-          companyName:
-            brand.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : brand.companyName,
-        };
-        setBrand(workingBrand);
-        setBrandGenerated(true);
-      }
+    if (status === "analysing" || status === "designing") {
+      return;
+    }
+    setStatus("analysing");
+    setMessage("Reading the job details and comparing them with the CV...");
+    setReadDiagnostics([]);
+    setDesignedHtml("");
+    setDesignInputs(null);
 
-      const result = await analyseCvAgainstJob({
+    let job: Awaited<ReturnType<typeof readJobDescription>>;
+    try {
+      job = await readJobDescription(jobUrl, jobText, workerUrl);
+    } catch (error) {
+      setShowJobFallback(true);
+      setReadDiagnostics(getErrorDiagnostics(error));
+      showError(error);
+      return;
+    }
+    if (job.diagnostics?.length) {
+      setReadDiagnostics(job.diagnostics);
+    }
+    let workingBrand = brand;
+    if (!employerWebsiteUrl.trim()) {
+      workingBrand = {
+        ...brand,
+        ...job.brand,
+        companyName:
+          brand.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : brand.companyName,
+      };
+      setBrand(workingBrand);
+      setBrandGenerated(true);
+    }
+
+    let result: AnalysisResult;
+    try {
+      result = await analyseCvAgainstJob({
         workerUrl,
         sharedSecret: ANALYSE_SHARED_SECRET,
         jobText: job.text,
         cvText,
         employerHint: workingBrand.companyName || job.brand.companyName,
       });
-
-      setAnalysis(result);
-      setMessage(job.warning || "Designing an on-brand CV from the employer's homepage...");
-
-      setStatus("designing");
-      try {
-        const { html, inputs } = await designCvHtml({
-          workerUrl,
-          sharedSecret: ANALYSE_SHARED_SECRET,
-          structuredCv: result.tailoredCv.fullCv,
-          brand: workingBrand,
-          employerHomepageUrl: employerWebsiteUrl.trim(),
-          jobTitle: result.jobTitle,
-          employerName: result.employerName || workingBrand.companyName,
-          cvLayoutDataUrl,
-        });
-        setDesignedHtml(html);
-        setDesignInputs(inputs);
-      } catch (designError) {
-        setMessage(
-          `Analysis succeeded but the on-brand CV design failed. ${
-            designError instanceof Error ? designError.message : ""
-          }`.trim(),
-        );
-        setStatus("error");
-        return;
-      }
-
-      setActiveOutput("cv");
-      setMessage("Analysis complete. Preview the CV or download the PDF.");
-      setStatus("ready");
-      setShowReadyOverlay(true);
     } catch (error) {
-      setShowJobFallback(true);
-      setReadDiagnostics(getErrorDiagnostics(error));
+      if (error instanceof AnalysisError) {
+        setReadDiagnostics(getErrorDiagnostics(error));
+      }
       showError(error);
+      return;
     }
+
+    setAnalysis(result);
+    setMessage(job.warning || "Designing an on-brand CV from the employer's homepage...");
+    setStatus("designing");
+
+    try {
+      const { html, inputs } = await designCvHtml({
+        workerUrl,
+        sharedSecret: ANALYSE_SHARED_SECRET,
+        structuredCv: result.tailoredCv.fullCv,
+        brand: workingBrand,
+        employerHomepageUrl: employerWebsiteUrl.trim(),
+        jobTitle: result.jobTitle,
+        employerName: result.employerName || workingBrand.companyName,
+        cvLayoutDataUrl,
+      });
+      setDesignedHtml(html);
+      setDesignInputs(inputs);
+    } catch (designError) {
+      setMessage(
+        `Analysis succeeded but the on-brand CV design failed. ${
+          designError instanceof Error ? designError.message : ""
+        }`.trim(),
+      );
+      setStatus("error");
+      return;
+    }
+
+    setActiveOutput("cv");
+    setMessage("Analysis complete. Preview the CV or download the PDF.");
+    setStatus("ready");
+    setShowReadyOverlay(true);
   }
 
   async function generateBrand() {
@@ -282,7 +308,11 @@ export function App() {
     if (!analysis || !designedHtml) {
       return;
     }
+    if (status === "exporting") {
+      return;
+    }
 
+    setStatus("exporting");
     try {
       const fileName = `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`;
       printCvHtml(designedHtml, fileName);
@@ -539,7 +569,11 @@ export function App() {
             )}
           </Panel>
 
-          <button className="primary-action" disabled={!canAnalyse || status === "analysing"} onClick={runAnalysis}>
+          <button
+            className="primary-action"
+            disabled={!canAnalyse || status === "analysing" || status === "designing"}
+            onClick={runAnalysis}
+          >
             <Sparkles aria-hidden="true" />
             Analyse and tailor CV
           </button>

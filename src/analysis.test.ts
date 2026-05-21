@@ -21,7 +21,14 @@ describe("analyseCvAgainstJob", () => {
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(
         new Response(
-          JSON.stringify({ analysis: { jobTitle: "Engineer", employerName: "Acme", skills: [], tailoredCv: {} } }),
+          JSON.stringify({
+            analysis: {
+              jobTitle: "Engineer",
+              employerName: "Acme",
+              skills: [],
+              tailoredCv: { fullCv: { experience: [] } },
+            },
+          }),
           { status: 200, headers: { "content-type": "application/json" } },
         ),
       );
@@ -75,5 +82,22 @@ describe("analyseCvAgainstJob", () => {
         cvText: "CV",
       }),
     ).rejects.toThrow(/did not return an analysis/);
+  });
+
+  it("throws when the Worker returns an analysis without tailoredCv.fullCv", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ analysis: { jobTitle: "x", skills: [], tailoredCv: {} } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await expect(
+      analyseCvAgainstJob({
+        workerUrl: "https://worker.example.com",
+        jobText: "JOB",
+        cvText: "CV",
+      }),
+    ).rejects.toThrow(/tailoredCv\.fullCv/);
   });
 });

@@ -59,5 +59,25 @@ export async function analyseCvAgainstJob(params: {
     throw new AnalysisError("The Worker did not return an analysis payload.", response.status);
   }
 
+  assertValidAnalysis(payload.analysis, response.status);
   return payload.analysis;
+}
+
+function assertValidAnalysis(value: AnalysisResult, status: number): void {
+  if (!value || typeof value !== "object") {
+    throw new AnalysisError("The Worker returned an analysis payload that is not an object.", status);
+  }
+  const tailored = (value as { tailoredCv?: unknown }).tailoredCv as
+    | { fullCv?: unknown }
+    | undefined;
+  if (!tailored || typeof tailored !== "object") {
+    throw new AnalysisError("The Worker analysis is missing tailoredCv.", status);
+  }
+  const fullCv = tailored.fullCv as { experience?: unknown } | undefined;
+  if (!fullCv || typeof fullCv !== "object") {
+    throw new AnalysisError("The Worker analysis is missing tailoredCv.fullCv.", status);
+  }
+  if (!Array.isArray(fullCv.experience)) {
+    throw new AnalysisError("The Worker analysis is missing tailoredCv.fullCv.experience.", status);
+  }
 }
