@@ -21,11 +21,10 @@ If a job site blocks the Worker too, paste the job description into the fallback
 
 The Worker code is in `worker/index.js` and is configured by `wrangler.toml`. The Worker exposes:
 
-- `GET /status` — reports whether `OPENAI_API_KEY`, `ANALYSE_SHARED_SECRET`, `JINA_API_KEY`, and Browser Rendering secrets are configured.
+- `GET /status` — reports whether `OPENAI_API_KEY`, `ANALYSE_SHARED_SECRET`, and `JINA_API_KEY` are configured.
 - `POST /read` — fetches a public HTML page server-side.
 - `POST /analyse` — sends the job + CV text to the OpenAI Responses API (gpt-5) and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set.
-- `POST /design-cv-html` — takes the structured CV + brand signals + employer homepage URL, captures a Microlink screenshot, and asks gpt-5 with vision to produce a self-contained on-brand HTML CV. Same auth as `/analyse`.
-- `POST /render-pdf` — takes `{ html }`, runs it through the Cloudflare Browser Rendering REST API, and streams an A4-portrait PDF back. Same auth as `/analyse`.
+- `POST /design-cv-html` — takes the structured CV + brand signals + employer homepage URL, captures a Microlink screenshot, and asks gpt-5 with vision to produce a self-contained on-brand HTML CV. Same auth as `/analyse`. The browser then renders the HTML through the native print dialog, where the user picks **Save as PDF**.
 - `GET /proxy-image?url=...` — proxies an employer logo so the preview can render it without CORS issues.
 
 It allows browser calls from `https://steverowley.github.io` plus local development origins.
@@ -39,8 +38,6 @@ It allows browser calls from `https://steverowley.github.io` plus local developm
    - `CLOUDFLARE_ACCOUNT_ID`: your Cloudflare account ID.
    - `OPENAI_API_KEY`: your OpenAI API key. Synced to the Worker as a Cloudflare secret on deploy.
    - `ANALYSE_SHARED_SECRET` (optional but recommended): a long random string. The Worker rejects authenticated endpoints without a matching `Authorization` header. Set the same value as `VITE_ANALYSE_SHARED_SECRET` so the frontend can send it.
-   - `CF_ACCOUNT_ID`: your Cloudflare account ID (used by `/render-pdf` to call the Browser Rendering REST API — can be the same value as `CLOUDFLARE_ACCOUNT_ID`).
-   - `CF_BROWSER_RENDERING_TOKEN`: a Cloudflare API token scoped to **Browser Rendering** (Workers Paid plan required). The Worker uses it to render the on-brand HTML CV to PDF.
 4. In GitHub Actions, run the `Deploy Cloudflare Worker` workflow. It deploys the Worker, then syncs the Cloudflare secrets above.
 5. Copy the deployed Worker URL. It will look similar to:
 

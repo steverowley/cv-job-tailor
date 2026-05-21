@@ -76,52 +76,39 @@ export async function designCvHtml(params: {
   return { html: payload.html, screenshotUrl: payload.screenshotUrl || "" };
 }
 
-export async function renderCvPdf(params: {
-  workerUrl: string;
-  sharedSecret?: string;
-  html: string;
-  fileName?: string;
-}): Promise<Blob> {
-  const { workerUrl, sharedSecret, html, fileName } = params;
-  const base = normaliseWorkerUrl(workerUrl);
-
-  let response: Response;
-  try {
-    response = await fetch(`${base}/render-pdf`, {
-      method: "POST",
-      headers: authHeaders(sharedSecret),
-      body: JSON.stringify({ html, fileName: fileName || "tailored-cv.pdf" }),
-    });
-  } catch (error) {
+export function printCvHtml(html: string, fileName: string): void {
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
     throw new CvDesignerError(
-      `The browser could not reach the Worker. ${error instanceof Error ? error.message : ""}`.trim(),
+      "The browser blocked the print window. Allow pop-ups for this site and try again.",
     );
   }
 
-  if (!response.ok) {
-    const rawText = await response.text().catch(() => "");
-    let message = `Worker responded with ${response.status}.`;
-    if (rawText) {
-      try {
-        const parsed = JSON.parse(rawText) as { error?: string };
-        if (parsed.error) message = parsed.error;
-      } catch {
-        message = rawText.slice(0, 500);
-      }
-    }
-    throw new CvDesignerError(message, response.status);
-  }
+  const titled = ensureDocumentTitle(html, fileName);
+  printWindow.document.open();
+  printWindow.document.write(titled);
+  printWindow.document.close();
 
-  return response.blob();
+  const triggerPrint = () => {
+    printWindow.focus();
+    printWindow.print();
+  };
+
+  if (printWindow.document.readyState === "complete") {
+    setTimeout(triggerPrint, 50);
+  } else {
+    printWindow.addEventListener("load", () => setTimeout(triggerPrint, 50));
+  }
 }
 
-export function downloadBlob(blob: Blob, fileName: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+function ensureDocumentTitle(html: string, fileName: string): string {
+  const safeTitle = fileName.replace(/\.pdf$/i, "").replace(/[<>"'&]/g, " ");
+  const titleTag = `<title>${safeTitle}</title>`;
+  if (/<title[^>]*>[\s\S]*?<\/title>/i.test(html)) {
+    return html.replace(/<title[^>]*>[\s\S]*?<\/title>/i, titleTag);
+  }
+  if (/<head[^>]*>/i.test(html)) {
+    return html.replace(/<head[^>]*>/i, (match) => `${match}${titleTag}`);
+  }
+  return html.replace(/<html[^>]*>/i, (match) => `${match}<head>${titleTag}</head>`);
 }

@@ -1,9 +1,7 @@
 // Worker secrets (set via `wrangler secret put` or the deploy workflow):
 //   OPENAI_API_KEY                 — required for POST /analyse and POST /design-cv-html
-//   ANALYSE_SHARED_SECRET          — optional; if set, /analyse, /design-cv-html, /render-pdf require Bearer auth
+//   ANALYSE_SHARED_SECRET          — optional; if set, /analyse and /design-cv-html require Bearer auth
 //   JINA_API_KEY                   — optional; lifts r.jina.ai shared-IP rate limit
-//   CF_ACCOUNT_ID                  — required for POST /render-pdf (Cloudflare account id)
-//   CF_BROWSER_RENDERING_TOKEN     — required for POST /render-pdf (Browser Rendering API token)
 
 const ALLOWED_ORIGINS = new Set([
   "https://steverowley.github.io",
@@ -24,7 +22,6 @@ const MAX_STRUCTURED_CV_BYTES = 60_000;
 const MODEL = "gpt-5";
 const HTML_DESIGN_MODEL = "gpt-5";
 const MICROLINK_ENDPOINT = "https://api.microlink.io/";
-const BROWSER_RENDERING_BASE = "https://api.cloudflare.com/client/v4/accounts";
 
 const SYSTEM_PROMPT = `You are a senior CV writer producing a tailored, single-document CV for one specific job application. Your output is rendered into a branded PDF, so length, tone, and structure matter as much as content.
 
@@ -337,7 +334,6 @@ export default {
           hasOpenAiKey: Boolean(env.OPENAI_API_KEY),
           requiresSharedSecret: Boolean(env.ANALYSE_SHARED_SECRET),
           hasJinaKey: Boolean(env.JINA_API_KEY),
-          hasBrowserRendering: Boolean(env.CF_ACCOUNT_ID && env.CF_BROWSER_RENDERING_TOKEN),
         },
         200,
         corsHeaders,
@@ -356,10 +352,6 @@ export default {
       return designCvHtml(request, env, corsHeaders);
     }
 
-    if (url.pathname === "/render-pdf" && request.method === "POST") {
-      return renderPdf(request, env, corsHeaders);
-    }
-
     if (url.pathname === "/proxy-image" && request.method === "GET") {
       return proxyImage(url, corsHeaders);
     }
@@ -369,10 +361,7 @@ export default {
     }
 
     return json(
-      {
-        error:
-          "Use GET /status, POST /read, POST /analyse, POST /design-cv-html, POST /render-pdf, or GET /proxy-image.",
-      },
+      { error: "Use GET /status, POST /read, POST /analyse, POST /design-cv-html, or GET /proxy-image." },
       404,
       corsHeaders,
     );
@@ -684,99 +673,6 @@ async function designCvHtml(request, env, corsHeaders) {
   }
 
   return json({ html: safeHtml, screenshotUrl }, 200, corsHeaders);
-}
-
-async function renderPdf(request, env, corsHeaders) {
-  if (!env.CF_ACCOUNT_ID || !env.CF_BROWSER_RENDERING_TOKEN) {
-    return json(
-      {
-        error:
-          "The Worker is missing Browser Rendering secrets (CF_ACCOUNT_ID and CF_BROWSER_RENDERING_TOKEN). PDF export is not configured.",
-      },
-      503,
-      corsHeaders,
-    );
-  }
-
-  if (env.ANALYSE_SHARED_SECRET) {
-    const auth = request.headers.get("authorization") || "";
-    const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-    if (!timingSafeEqual(provided, env.ANALYSE_SHARED_SECRET)) {
-      return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
-    }
-  }
-
-  let payload;
-  try {
-    payload = await request.json();
-  } catch {
-    return json({ error: "Request body must be JSON." }, 400, corsHeaders);
-  }
-
-  let safeHtml;
-  try {
-    safeHtml = sanitizeGeneratedHtml(payload?.html);
-  } catch (error) {
-    return json(
-      { error: error instanceof Error ? error.message : "Invalid HTML." },
-      400,
-      corsHeaders,
-    );
-  }
-
-  const fileName =
-    typeof payload?.fileName === "string" && /^[\w.\- ]{1,120}$/.test(payload.fileName)
-      ? payload.fileName
-      : "tailored-cv.pdf";
-
-  const endpoint = `${BROWSER_RENDERING_BASE}/${env.CF_ACCOUNT_ID}/browser-rendering/pdf`;
-  const upstream = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.CF_BROWSER_RENDERING_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      html: safeHtml,
-      viewport: { width: 794, height: 1123 },
-      addStyleTag: [],
-      pdfOptions: {
-        format: "A4",
-        printBackground: true,
-        preferCSSPageSize: true,
-        margin: { top: "0mm", bottom: "0mm", left: "0mm", right: "0mm" },
-      },
-    }),
-  });
-
-  if (!upstream.ok) {
-    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
-    return json(
-      { error: `Browser Rendering returned ${upstream.status}.${detail ? ` ${detail}` : ""}` },
-      502,
-      corsHeaders,
-    );
-  }
-
-  const contentType = upstream.headers.get("content-type") || "";
-  if (!contentType.includes("application/pdf")) {
-    const detail = (await upstream.text().catch(() => "")).slice(0, 500);
-    return json(
-      { error: `Browser Rendering returned non-PDF content (${contentType || "unknown"}).${detail ? ` ${detail}` : ""}` },
-      502,
-      corsHeaders,
-    );
-  }
-
-  return new Response(upstream.body, {
-    status: 200,
-    headers: {
-      ...corsHeaders,
-      "content-type": "application/pdf",
-      "content-disposition": `attachment; filename="${fileName}"`,
-      "cache-control": "no-store",
-    },
-  });
 }
 
 function buildHtmlDesignPromptText({ structuredCvJson, brand, jobTitle, employerName, websiteUrl, logoDataUrl }) {

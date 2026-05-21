@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CvDesignerError, designCvHtml, renderCvPdf } from "./cvDesigner";
+import { CvDesignerError, designCvHtml, printCvHtml } from "./cvDesigner";
 import { BrandSettings, FullCv } from "./types";
 
 const BRAND: BrandSettings = {
@@ -91,46 +91,39 @@ describe("designCvHtml", () => {
   });
 });
 
-describe("renderCvPdf", () => {
-  it("POSTs the HTML and resolves with the PDF blob", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(new Blob([new Uint8Array([0x25, 0x50, 0x44, 0x46])], { type: "application/pdf" }), {
-        status: 200,
-        headers: { "content-type": "application/pdf" },
-      }),
-    );
+describe("printCvHtml", () => {
+  it("opens a new window with the HTML and triggers print", () => {
+    const writeSpy = vi.fn();
+    const openSpy = vi.fn();
+    const closeSpy = vi.fn();
+    const focusSpy = vi.fn();
+    const printSpy = vi.fn();
+    const fakeDoc = { open: openSpy, write: writeSpy, close: closeSpy, readyState: "complete" };
+    const fakeWindow = {
+      document: fakeDoc,
+      addEventListener: vi.fn(),
+      focus: focusSpy,
+      print: printSpy,
+    } as unknown as Window;
+    const openWindowSpy = vi.spyOn(window, "open").mockReturnValue(fakeWindow);
 
-    const blob = await renderCvPdf({
-      workerUrl: "https://worker.example.com",
-      sharedSecret: "shh",
-      html: "<!DOCTYPE html><html></html>",
-      fileName: "acme-tailored-cv.pdf",
-    });
+    vi.useFakeTimers();
+    printCvHtml("<!DOCTYPE html><html><head></head><body></body></html>", "acme-tailored-cv.pdf");
+    vi.runAllTimers();
+    vi.useRealTimers();
 
-    expect(blob.type).toBe("application/pdf");
-
-    const [url, init] = fetchSpy.mock.calls[0];
-    expect(url).toBe("https://worker.example.com/render-pdf");
-    const body = JSON.parse((init as RequestInit).body as string);
-    expect(body.html).toBe("<!DOCTYPE html><html></html>");
-    expect(body.fileName).toBe("acme-tailored-cv.pdf");
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers.Authorization).toBe("Bearer shh");
+    expect(openWindowSpy).toHaveBeenCalledWith("", "_blank");
+    expect(openSpy).toHaveBeenCalled();
+    expect(writeSpy).toHaveBeenCalled();
+    const written = writeSpy.mock.calls[0][0] as string;
+    expect(written).toContain("<title>acme-tailored-cv</title>");
+    expect(closeSpy).toHaveBeenCalled();
+    expect(focusSpy).toHaveBeenCalled();
+    expect(printSpy).toHaveBeenCalled();
   });
 
-  it("surfaces a 503 when Browser Rendering is not configured", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ error: "missing CF_ACCOUNT_ID" }), {
-        status: 503,
-        headers: { "content-type": "application/json" },
-      }),
-    );
-
-    await expect(
-      renderCvPdf({
-        workerUrl: "https://worker.example.com",
-        html: "<!DOCTYPE html><html></html>",
-      }),
-    ).rejects.toMatchObject({ name: "CvDesignerError", status: 503, message: "missing CF_ACCOUNT_ID" });
+  it("throws when the browser blocks the popup", () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    expect(() => printCvHtml("<!DOCTYPE html><html></html>", "x.pdf")).toThrow(/pop-ups/i);
   });
 });

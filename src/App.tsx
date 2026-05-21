@@ -16,7 +16,7 @@ import {
 import { extractCvText, looksLikeUsableCv } from "./documentParser";
 import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
 import { analyseCvAgainstJob } from "./analysis";
-import { CvDesignerError, designCvHtml, downloadBlob, renderCvPdf } from "./cvDesigner";
+import { CvDesignerError, designCvHtml, printCvHtml } from "./cvDesigner";
 import { CvHtmlPreview } from "./CvHtmlPreview";
 import { AnalysisResult, BrandSettings } from "./types";
 
@@ -268,24 +268,18 @@ export function App() {
     }
   }
 
-  async function exportPdf() {
+  function exportPdf() {
     if (!analysis || !designedHtml) {
       return;
     }
 
     try {
-      setStatus("exporting");
-      setMessage("Rendering the PDF through Cloudflare Browser Rendering...");
       const fileName = `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`;
-      const blob = await renderCvPdf({
-        workerUrl,
-        sharedSecret: ANALYSE_SHARED_SECRET,
-        html: designedHtml,
-        fileName,
-      });
-      downloadBlob(blob, fileName);
+      printCvHtml(designedHtml, fileName);
       setStatus("ready");
-      setMessage("PDF downloaded.");
+      setMessage(
+        "Opened the print dialog. Choose 'Save as PDF' as the destination to download your tailored CV.",
+      );
     } catch (error) {
       if (error instanceof CvDesignerError) {
         setMessage(error.message);
