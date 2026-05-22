@@ -844,22 +844,22 @@ function buildHtmlDesignPromptText({
 }
 
 async function fetchLogoAsDataUrl(logoUrl) {
-  let parsed;
-  try {
-    parsed = new URL(logoUrl);
-  } catch {
-    throw new Error("Invalid logo URL.");
-  }
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    throw new Error("Logo URL must be http or https.");
-  }
-  const upstream = await fetch(parsed.toString(), {
+  // Gate the upstream fetch on the same private-host allowlist as /read and
+  // /proxy-image so a caller can't ask the Worker to fetch http://127.0.0.1/...
+  // and embed the response. redirect: "manual" closes the redirect-to-internal
+  // bypass — if a logo CDN legitimately redirects, the caller should supply the
+  // canonical URL.
+  const validated = validateTargetUrl(logoUrl);
+  const upstream = await fetch(validated, {
     headers: {
-      ...browserLikeHeaders(parsed.toString()),
+      ...browserLikeHeaders(validated),
       accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
     },
-    redirect: "follow",
+    redirect: "manual",
   });
+  if (upstream.status >= 300 && upstream.status < 400) {
+    throw new Error("Logo URL redirected; refusing to follow.");
+  }
   if (!upstream.ok) {
     throw new Error(`Logo fetch failed with ${upstream.status}.`);
   }
@@ -1008,7 +1008,12 @@ async function fetchMicrolinkScreenshot(targetUrl) {
   if (typeof url !== "string" || !url) {
     throw new Error("Microlink did not return a screenshot URL.");
   }
-  return { url };
+  // The screenshot URL is forwarded to OpenAI as input_image.image_url, so
+  // re-validate it before trusting it — Microlink should always return an
+  // https URL on a public host, but a compromised or misconfigured upstream
+  // could otherwise have the Worker hand a private-host URL to OpenAI.
+  const validated = validateTargetUrl(url);
+  return { url: validated };
 }
 
 async function proxyImage(url, corsHeaders) {
