@@ -962,7 +962,7 @@ export function injectGeneratedHtmlCsp(html) {
   throw new Error("html must contain <html> and <head> tags.");
 }
 
-function sanitizeBrandHint(value) {
+export function sanitizeBrandHint(value) {
   if (!value || typeof value !== "object") return {};
   const safe = {};
   for (const key of [
@@ -1012,7 +1012,7 @@ async function fetchMicrolinkScreenshot(targetUrl) {
   return { url: validated };
 }
 
-function extractOpenAIStructuredAnalysis(payload) {
+export function extractOpenAIStructuredAnalysis(payload) {
   if (!payload) {
     return null;
   }
@@ -1052,7 +1052,7 @@ function extractOpenAIStructuredAnalysis(payload) {
   return null;
 }
 
-function extractOpenAIError(rawText) {
+export function extractOpenAIError(rawText) {
   if (!rawText) return "";
   try {
     const parsed = JSON.parse(rawText);
@@ -1110,7 +1110,7 @@ export function isPrivateOrLocalHost(hostname) {
   return false;
 }
 
-function isReadableContent(contentType) {
+export function isReadableContent(contentType) {
   return (
     !contentType ||
     contentType.includes("text/html") ||
@@ -1145,7 +1145,7 @@ function browserLikeHeaders(targetUrl) {
   };
 }
 
-function shouldRetryViaReaderProxy(status) {
+export function shouldRetryViaReaderProxy(status) {
   return status === 403 || status === 410 || status === 429 || status === 451 || status >= 500;
 }
 
@@ -1163,7 +1163,7 @@ async function fetchViaReaderProxy(targetUrl, env) {
   return fetch(endpoint, { headers, redirect: "follow" });
 }
 
-function explainUpstreamStatus(status) {
+export function explainUpstreamStatus(status) {
   if (status === 403) {
     return "The website responded with 403 — it likely blocks automated requests. Paste the job description into the fallback box.";
   }
@@ -1267,7 +1267,7 @@ export function isAllowedStylesheetUrl(resolvedUrl, base) {
   }
 }
 
-function extractCssColors(css) {
+export function extractCssColors(css) {
   if (!css) return [];
   const colors = [];
   const seen = new Set();
@@ -1283,7 +1283,7 @@ function extractCssColors(css) {
   return colors;
 }
 
-function extractCssFonts(css) {
+export function extractCssFonts(css) {
   if (!css) return [];
   const fonts = [];
   const seen = new Set();
@@ -1303,7 +1303,7 @@ function extractCssFonts(css) {
   return fonts;
 }
 
-function timingSafeEqual(a, b) {
+export function timingSafeEqual(a, b) {
   if (typeof a !== "string" || typeof b !== "string") return false;
   const len = Math.max(a.length, b.length, 1);
   let result = a.length ^ b.length;
