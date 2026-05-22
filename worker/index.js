@@ -894,7 +894,7 @@ const GENERATED_HTML_CSP = [
   "form-action 'none'",
 ].join("; ");
 
-function sanitizeGeneratedHtml(value) {
+export function sanitizeGeneratedHtml(value) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error("html must be a non-empty string.");
   }
@@ -933,7 +933,7 @@ function sanitizeGeneratedHtml(value) {
   return injectGeneratedHtmlCsp(trimmed);
 }
 
-function decodeHtmlAndCssEscapes(input) {
+export function decodeHtmlAndCssEscapes(input) {
   let out = input.replace(/\\([0-9a-f]{1,6})\s?/gi, (_, hex) => {
     const code = parseInt(hex, 16);
     if (!Number.isFinite(code) || code <= 0 || code > 0x10ffff) return "";
@@ -955,7 +955,7 @@ function decodeHtmlAndCssEscapes(input) {
   return out;
 }
 
-function injectGeneratedHtmlCsp(html) {
+export function injectGeneratedHtmlCsp(html) {
   const cspTag = `<meta http-equiv="Content-Security-Policy" content="${GENERATED_HTML_CSP}">`;
   if (/<head[^>]*>/i.test(html)) {
     return html.replace(/<head[^>]*>/i, (match) => `${match}${cspTag}`);
@@ -1124,7 +1124,7 @@ function buildCorsHeaders(origin) {
   };
 }
 
-function validateTargetUrl(value) {
+export function validateTargetUrl(value) {
   if (typeof value !== "string" || !value.trim()) {
     throw new Error("Missing URL.");
   }
@@ -1141,7 +1141,7 @@ function validateTargetUrl(value) {
   return targetUrl.toString();
 }
 
-function isPrivateOrLocalHost(hostname) {
+export function isPrivateOrLocalHost(hostname) {
   if (!hostname) return true;
   const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal")) {
@@ -1303,7 +1303,7 @@ function collectStylesheetHrefs(html, baseUrl) {
   return hrefs;
 }
 
-function isAllowedStylesheetUrl(resolvedUrl, base) {
+export function isAllowedStylesheetUrl(resolvedUrl, base) {
   try {
     const target = new URL(resolvedUrl);
     if (!["http:", "https:"].includes(target.protocol)) return false;
