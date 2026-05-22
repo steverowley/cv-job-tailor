@@ -27,6 +27,13 @@ const MODEL = "gpt-5";
 const HTML_DESIGN_MODEL = "gpt-5";
 const MICROLINK_ENDPOINT = "https://api.microlink.io/";
 
+// Cloudflare Workers paid tier allows 30s of CPU time per request but each
+// subrequest has its own ~60s default and the wall-clock budget can stretch
+// further. OpenAI Responses with gpt-5 + medium reasoning routinely takes
+// 30–60s and occasionally hangs. Cap each upstream OpenAI call so a hung
+// request returns a clear 504 instead of consuming the whole invocation.
+const OPENAI_TIMEOUT_MS = 110_000;
+
 const SYSTEM_PROMPT = `You are a senior CV writer producing a tailored, single-document CV for one specific job application. Your output is rendered into a branded PDF, so length, tone, and structure matter as much as content.
 
 CORE RULES — non-negotiable
@@ -578,14 +585,30 @@ async function analyseWithOpenAI(request, env, corsHeaders) {
     },
   };
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetchWithTimeout(
+      "https://api.openai.com/v1/responses",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+      OPENAI_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (isAbortError(error)) {
+      return json(
+        { error: `OpenAI analysis did not respond within ${Math.round(OPENAI_TIMEOUT_MS / 1000)}s.` },
+        504,
+        corsHeaders,
+      );
+    }
+    throw error;
+  }
 
   const rawText = await response.text();
   if (!response.ok) {
@@ -723,14 +746,30 @@ async function designCvHtml(request, env, corsHeaders) {
     },
   };
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let response;
+  try {
+    response = await fetchWithTimeout(
+      "https://api.openai.com/v1/responses",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      },
+      OPENAI_TIMEOUT_MS,
+    );
+  } catch (error) {
+    if (isAbortError(error)) {
+      return json(
+        { error: `OpenAI design did not respond within ${Math.round(OPENAI_TIMEOUT_MS / 1000)}s.` },
+        504,
+        corsHeaders,
+      );
+    }
+    throw error;
+  }
 
   const rawText = await response.text();
   if (!response.ok) {
@@ -1301,6 +1340,20 @@ export function extractCssFonts(css) {
     fonts.push(first);
   }
   return fonts;
+}
+
+export async function fetchWithTimeout(url, init, timeoutMs) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+export function isAbortError(error) {
+  return Boolean(error) && (error.name === "AbortError" || error.code === "ABORT_ERR");
 }
 
 export function timingSafeEqual(a, b) {
