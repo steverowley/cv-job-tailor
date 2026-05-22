@@ -24,8 +24,7 @@ The Worker code is in `worker/index.js` and is configured by `wrangler.toml`. Th
 - `GET /status` — reports whether `OPENAI_API_KEY`, `ANALYSE_SHARED_SECRET`, and `JINA_API_KEY` are configured.
 - `POST /read` — fetches a public HTML page server-side.
 - `POST /analyse` — sends the job + CV text to the OpenAI Responses API (gpt-5) and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set.
-- `POST /design-cv-html` — takes the structured CV + brand signals + employer homepage URL, captures a Microlink screenshot, and asks gpt-5 with vision to produce a self-contained on-brand HTML CV. Same auth as `/analyse`. The browser then renders the HTML through the native print dialog, where the user picks **Save as PDF**.
-- `GET /proxy-image?url=...` — proxies an employer logo so the preview can render it without CORS issues.
+- `POST /design-cv-html` — takes the structured CV + brand signals + employer homepage URL, captures a Microlink screenshot, and asks gpt-5 with vision to produce a self-contained on-brand HTML CV. Same auth as `/analyse`. The Worker fetches the employer logo server-side and embeds it as a data URL in the generated HTML. The browser then renders the HTML through the native print dialog, where the user picks **Save as PDF**.
 
 It allows browser calls from `https://steverowley.github.io` plus local development origins.
 
