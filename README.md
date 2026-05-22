@@ -9,7 +9,7 @@ A static GitHub Pages web app for tailoring a CV against a job description. The 
 - Sends the CV and job text to a Cloudflare Worker that calls the OpenAI Responses API to extract job skills, match CV evidence, and propose evidence-only CV wording.
 - Shows unsupported job requirements as gaps instead of inventing experience.
 - Takes an employer website URL, extracts public brand signals when the Worker can fetch them, and exports a text-rendered branded PDF (ATS-friendly, not a raster image).
-- Generates a CV layout that is on-brand for each employer, not a fixed template: the Worker captures a screenshot of the employer homepage and asks OpenAI Vision (gpt-4o) for a structured DesignSpec (archetype, typography, geometry, colour roles, hero treatment). The renderer then picks one of several layout archetypes (editorial, sidebar classic, feature band, monolith) parameterised by that spec.
+- Generates a CV layout that is on-brand for each employer, not a fixed template: the Worker captures a screenshot of the employer homepage with Microlink and asks gpt-5 (with vision) to produce a self-contained, A4-portrait HTML CV that mirrors the employer's typography, colour usage, and visual voice. The browser renders that HTML through the native print dialog (Save as PDF).
 
 ## Privacy model
 
