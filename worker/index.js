@@ -413,16 +413,12 @@ export default {
       return designCvHtml(request, env, corsHeaders);
     }
 
-    if (url.pathname === "/proxy-image" && request.method === "GET") {
-      return proxyImage(url, corsHeaders);
-    }
-
     if (url.pathname === "/read" && request.method === "POST") {
       return readPage(request, env, corsHeaders);
     }
 
     return json(
-      { error: "Use GET /status, POST /read, POST /analyse, POST /design-cv-html, or GET /proxy-image." },
+      { error: "Use GET /status, POST /read, POST /analyse, or POST /design-cv-html." },
       404,
       corsHeaders,
     );
@@ -844,10 +840,10 @@ function buildHtmlDesignPromptText({
 }
 
 async function fetchLogoAsDataUrl(logoUrl) {
-  // Gate the upstream fetch on the same private-host allowlist as /read and
-  // /proxy-image so a caller can't ask the Worker to fetch http://127.0.0.1/...
-  // and embed the response. redirect: "manual" closes the redirect-to-internal
-  // bypass — if a logo CDN legitimately redirects, the caller should supply the
+  // Gate the upstream fetch on the same private-host allowlist as /read so
+  // a caller can't ask the Worker to fetch http://127.0.0.1/... and embed
+  // the response. redirect: "manual" closes the redirect-to-internal bypass —
+  // if a logo CDN legitimately redirects, the caller should supply the
   // canonical URL.
   const validated = validateTargetUrl(logoUrl);
   const upstream = await fetch(validated, {
@@ -1014,53 +1010,6 @@ async function fetchMicrolinkScreenshot(targetUrl) {
   // could otherwise have the Worker hand a private-host URL to OpenAI.
   const validated = validateTargetUrl(url);
   return { url: validated };
-}
-
-async function proxyImage(url, corsHeaders) {
-  const target = url.searchParams.get("url") || "";
-  let validated;
-  try {
-    validated = validateTargetUrl(target);
-  } catch (error) {
-    return json({ error: error instanceof Error ? error.message : "Invalid image URL." }, 400, corsHeaders);
-  }
-
-  const upstream = await fetch(validated, {
-    headers: {
-      ...browserLikeHeaders(validated),
-      accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-      "sec-fetch-dest": "image",
-      "sec-fetch-mode": "no-cors",
-    },
-    redirect: "manual",
-  });
-
-  if (upstream.status >= 300 && upstream.status < 400) {
-    return json({ error: "Image URL redirected; refusing to follow." }, 502, corsHeaders);
-  }
-
-  if (!upstream.ok) {
-    return json({ error: `Image fetch failed with ${upstream.status}.` }, 502, corsHeaders);
-  }
-
-  const contentType = upstream.headers.get("content-type") || "";
-  if (!contentType.startsWith("image/")) {
-    return json({ error: `Unsupported image content type: ${contentType || "unknown"}.` }, 415, corsHeaders);
-  }
-
-  const buffer = await upstream.arrayBuffer();
-  if (buffer.byteLength > MAX_IMAGE_BYTES) {
-    return json({ error: "Image is too large to proxy." }, 413, corsHeaders);
-  }
-
-  return new Response(buffer, {
-    status: 200,
-    headers: {
-      ...corsHeaders,
-      "content-type": contentType,
-      "cache-control": "public, max-age=86400",
-    },
-  });
 }
 
 function extractOpenAIStructuredAnalysis(payload) {
