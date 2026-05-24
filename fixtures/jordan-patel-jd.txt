@@ -1,0 +1,29 @@
+Senior Product Designer — Helix Money
+London (hybrid, 3 days/week in office) · Permanent
+
+About Helix Money
+Helix Money is a London-based B2B SaaS company building treasury and reconciliation tooling for finance teams at mid-market businesses. We have around 90 staff and 1,500 paying customers. Our product team owns the end-to-end customer journey from sign-up to power-user features. We work in two-week iterations and ship to production every Wednesday.
+
+The role
+We are hiring a Senior Product Designer to own the design of our reconciliation and reporting suite. You will be the second senior designer on the team and will partner closely with our Head of Design on the company-wide design system. This is a hands-on individual contributor role; you will personally produce the work, but you will also set design standards across two product squads.
+
+What you'll do
+- Own the design of two reconciliation flows from research through to engineering handoff and post-launch iteration.
+- Contribute components, patterns, and documentation to our Helix Design System, working with the Head of Design and our two senior front-end engineers.
+- Run discovery and evaluative research, including stakeholder workshops, customer interviews, and usability sessions, supported by our part-time researcher.
+- Hold the accessibility bar at WCAG 2.2 AA across the suite and run periodic audits.
+- Mentor one mid-level designer joining the team in Q3.
+
+Required
+- 5+ years of product design experience in B2B SaaS, with at least 2 years at a senior level.
+- Demonstrable experience designing and contributing to a documented design system in Figma.
+- A track record of running stakeholder workshops and partnering with senior business stakeholders.
+- Practical fluency in WCAG accessibility standards.
+
+Preferred
+- Background in fintech, accounting, or treasury tooling.
+- Comfortable producing prototyping in code (React, Vue) for high-fidelity reviews.
+- Experience mentoring junior or mid-level designers.
+
+What we offer
+Competitive salary (£85–105k DOE), 30 days holiday, share options, learning budget. Hybrid (3 days/week in our Old Street office).

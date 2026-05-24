@@ -1,0 +1,35 @@
+Jordan Patel
+Senior Product Designer · London, UK
+jordan.patel@example.com · +44 7700 900123 · linkedin.com/in/jordanpatel · jordanpatel.design
+
+PROFILE
+Senior product designer with seven years of experience in B2B SaaS. Owned end-to-end design for three core flows at a 200-person fintech, led the migration from ad-hoc components to a documented design system, and ran the discovery work that shaped the company's mobile-first onboarding. Comfortable holding design quality in front of senior stakeholders and shipping in a fortnightly release cadence.
+
+EXPERIENCE
+Lead Product Designer, Ledgerwave (fintech, 200 staff)
+March 2022 – Present, London (hybrid)
+- Owned the design of the Ledgerwave reconciliation module, used daily by 9,000 accountants across the UK and Ireland.
+- Led the rebuild of the Ledgerwave Pattern Library from 64 ad-hoc components to 38 documented, tokenised React components in Figma and code; cut new-feature design time by 40 percent.
+- Ran weekly design critiques across a team of six designers; mentored two mid-level designers to senior promotion.
+- Partnered with engineering to define the accessibility baseline (WCAG 2.2 AA) and shipped a colour-contrast audit that closed 73 historic violations.
+- Facilitated quarterly stakeholder workshops with the CFO and Head of Customer Success to align the design backlog to OKRs.
+
+Product Designer, Tilden Health (B2B health software)
+June 2019 – February 2022, Manchester
+- Designed the Tilden clinician dashboard from a paper prototype to GA; the product is now used in 14 NHS trusts.
+- Wrote and maintained the Tilden component documentation in Notion; rolled out a contribution model so engineers could submit new patterns.
+- Embedded with a research team for a six-week diary study on triage workflows; the findings reshaped the priority queue UI and reduced average triage time by 18 percent.
+
+Junior Product Designer, Northbow Creative (agency)
+September 2017 – May 2019, Leeds
+- Delivered marketing-site and onboarding-flow design for eight clients across retail, charity, and B2B SaaS.
+- Built and maintained Northbow's internal Sketch component library before migrating it to Figma in early 2019.
+
+SKILLS
+Design systems · Figma · React (handoff and prototyping) · WCAG 2.2 AA accessibility · Stakeholder workshops · Design critique · Component documentation · Diary studies · Mobile-first design · Service blueprinting
+
+EDUCATION
+BA (Hons) Graphic Communication Design, Manchester School of Art, 2014 – 2017
+
+CERTIFICATIONS
+Interaction Design Foundation — UX Management, 2023

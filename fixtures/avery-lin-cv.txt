@@ -1,0 +1,30 @@
+Avery Lin
+Software Engineer · Edinburgh, UK
+avery.lin@example.com · +44 7700 900456 · github.com/averylin
+
+PROFILE
+Software engineer with five years of experience building web applications in TypeScript, React, and Node.js. Strong product instincts honed by working in small teams where the engineer doubles as analyst, designer's sounding board, and customer support escalation. Looking to move into product management; currently leading a small cross-functional initiative at Brightline Health to redesign the appointment-booking flow.
+
+EXPERIENCE
+Senior Software Engineer, Brightline Health (digital health, 70 staff)
+October 2022 – Present, Edinburgh (remote)
+- Lead engineer on the Brightline appointment-booking rewrite, a six-month initiative across one designer, one engineer, and one part-time PM; my role has expanded beyond engineering into roadmap and discovery work in PM absence.
+- Run weekly customer interviews with five GPs and three practice managers since January 2024; synthesised the findings into the initiative's PRD.
+- Migrated the booking surface from a Rails monolith to a Next.js front-end backed by a TypeScript GraphQL layer; cut p95 page-load from 3.4s to 0.9s.
+- Mentor two junior engineers through weekly 1:1s and pairing sessions.
+
+Software Engineer, Pellinor Maps (consumer cartography, 22 staff)
+June 2020 – September 2022, Glasgow
+- Built and shipped the Pellinor offline-tiles feature in React Native; the feature is used by 41 percent of the active base.
+- Owned the customer-feedback triage queue every Friday afternoon; routed 1,200 tickets across the year into the engineering and product backlog.
+- Wrote and maintained the Pellinor API documentation in Markdown; reduced the volume of integration-support emails from third-party developers by half.
+
+Junior Software Engineer, Halford & Crane Digital (agency)
+August 2019 – May 2020, Edinburgh
+- Worked on three client projects across charity, hospitality, and retail; my responsibilities were front-end implementation and bug-fixing.
+
+SKILLS
+TypeScript · React · Next.js · Node.js · GraphQL · Customer interviews · Cross-functional facilitation · Technical documentation · Mentoring · Product discovery (informal)
+
+EDUCATION
+BSc (Hons) Computer Science, University of Edinburgh, 2015 – 2019, First-class honours

@@ -72,6 +72,24 @@ The Vite base path is configured for GitHub Pages at `/cv-job-tailor/`.
 npm test
 ```
 
+## Eval suite
+
+The eval suite runs three synthetic (CV, JD) fixtures through the deployed Worker's `/analyse` and checks objective properties of each response — schema sanity, banned phrases, length budgets, evidence-only preservation of names/dates/employers, and no clearly fabricated skills.
+
+```bash
+# Uses $VITE_CLOUDFLARE_WORKER_URL by default
+VITE_CLOUDFLARE_WORKER_URL=https://your.worker.dev \
+VITE_ANALYSE_SHARED_SECRET=... \
+  npm run eval
+
+# Or pass the URL directly
+npm run eval -- https://your.worker.dev
+```
+
+Each fixture is one `/analyse` call (~$0.30–0.50 on gpt-5 with medium reasoning). Three fixtures ≈ $1–1.50 per run. Run it manually before merging a prompt change.
+
+Fixtures live in `fixtures/<name>-cv.txt` and `fixtures/<name>-jd.txt`. To add a new pair, drop two files with the same `<name>` stem and re-run.
+
 ## Worker diagnostics
 
 Check whether the deployed Worker is reachable and has the OpenAI key:

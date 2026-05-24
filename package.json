@@ -7,6 +7,7 @@
     "dev": "vite --base=/cv-job-tailor/",
     "build": "tsc --noEmit && vite build --base=/cv-job-tailor/",
     "check:worker": "node scripts/check-worker.mjs",
+    "eval": "node scripts/eval.mjs",
     "preview": "vite preview",
     "test": "vitest run"
   },

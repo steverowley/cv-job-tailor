@@ -1,0 +1,29 @@
+Senior Product Manager, Booking — Cardona Health
+Remote, UK (occasional travel to London or Manchester)
+
+About Cardona Health
+Cardona Health is a venture-backed digital health company. We work with NHS trusts and private clinic groups to digitise patient access — booking, triage, and pre-appointment data capture. We are 130 staff, eight years old, and serve 4.2 million patients across 320 clinical sites in the UK.
+
+The role
+We are hiring a Senior Product Manager to own the Booking surface end-to-end. This is the highest-traffic part of our product — 19,000 appointments are booked through it on an average weekday — and it has the most demanding mix of stakeholders, including NHS commissioners, clinical safety officers, and individual practice managers. You will lead a squad of one designer and four engineers.
+
+Responsibilities
+- Own the Booking surface roadmap, the discovery work that informs it, and the metrics it is judged against.
+- Lead weekly discovery sessions with GPs, practice managers, NHS commissioners, and patients.
+- Partner with the Head of Clinical Safety on the DCB0129 safety case for every release.
+- Run the cross-functional rituals — sprint planning, refinement, retrospectives — for a squad of five.
+- Define and track booking-conversion, abandonment, and time-to-appointment KPIs.
+
+Required
+- 3+ years as a product manager owning a customer-facing software product end-to-end.
+- Experience running discovery with both end-users and senior internal stakeholders.
+- Demonstrated comfort with the metrics craft — defining KPIs, instrumenting them, and reasoning about them weekly.
+- Strong written communication, especially PRDs and stakeholder updates.
+
+Strongly preferred
+- Health or healthtech background, ideally including the NHS commissioning environment.
+- Familiarity with DCB0129 / DCB0160 or other clinical safety standards.
+- Background in engineering or design (you have done one of those jobs before becoming a PM).
+
+We offer
+£75–95k base, equity, fully remote within the UK with quarterly company offsites. 28 days holiday plus bank holidays, generous L&D budget.
