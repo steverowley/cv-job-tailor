@@ -1,0 +1,28 @@
+Engineering Manager, Storage — Veranova
+Berlin (hybrid) or remote within +/- 2 hours of Berlin time
+
+About Veranova
+Veranova builds the data infrastructure layer that powers analytics products at large European retailers and banks. We are a 280-person company headquartered in Berlin with engineering hubs in Amsterdam and Warsaw. Our Storage organisation operates a multi-region object store and a metadata service that together handle ~2 PB of customer data and a peak of 60k writes per second.
+
+The role
+We are hiring an Engineering Manager to lead our Storage Platform team — two squads, twelve engineers, with a plan to grow to sixteen in the next year. You will report to the Director of Storage. The work spans the multi-region object store, the metadata service, and the storage-side bits of the customer EU data sovereignty offering we launched last year.
+
+Your responsibilities
+- Lead and grow two squads (twelve engineers, planning sixteen) through hiring, performance, and career development.
+- Own the on-call rotation, runbooks, and incident-review cadence across the group.
+- Partner with the Director of Storage and the Head of Product to plan a multi-region roadmap.
+- Stay close enough to the technical detail to be a credible reviewer on the most consequential changes and to take incident command on Sev1.
+
+What we're looking for
+- 3+ years managing distributed-systems engineering teams of at least eight people.
+- Hands-on engineering background — you have built and operated production systems in Go, Rust, or a similar systems language.
+- Track record of hiring senior and staff engineers across multiple geographies.
+- Experience designing and running an on-call programme, including incident review.
+
+Nice to have
+- Prior exposure to multi-region storage, sharded databases, or sovereignty-driven architectures.
+- Open-source contribution or speaking presence in the infra / SRE community.
+- Experience co-authoring a career framework.
+
+Compensation
+€130–160k base depending on experience, plus equity and a 4k EUR/year learning budget. 30 days holiday, hybrid or remote within +/- 2 hours of CET.

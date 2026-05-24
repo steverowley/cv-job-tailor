@@ -1,0 +1,40 @@
+Samuel Okonkwo
+Engineering Manager · Berlin, Germany
+sam.okonkwo@example.com · +49 30 123 45678 · github.com/samokonkwo · linkedin.com/in/samokonkwo
+
+PROFILE
+Engineering manager with twelve years in software, the last five leading distributed systems teams across two product companies. Grew an infrastructure team from three to fifteen engineers across Berlin, Lagos, and São Paulo. Hands-on technical background in Go and Python; comfortable reviewing critical PRs and sitting incident command, but spends most weeks on hiring, performance, and roadmap work.
+
+EXPERIENCE
+Engineering Manager, Tessera Cloud (data platform, 350 staff)
+August 2021 – Present, Berlin
+- Lead the Storage Platform group: three squads, fifteen engineers, two staff engineers, one engineering manager direct report.
+- Owned the hiring plan that took the group from 3 to 15 engineers between 2021 and 2024; ran end-to-end interviewing for 12 of those hires.
+- Set up the on-call rotation, runbooks, and incident-review process across all three squads; mean time to recover on Sev1 incidents fell from 92 to 27 minutes over 18 months.
+- Co-authored the Tessera technical career framework with the VP of Engineering; the framework is now used company-wide across 90 engineers.
+- Partnered with the VP of Product and the CFO to plan the multi-region storage roadmap that delivered the EU sovereignty offering in March 2024.
+
+Senior Software Engineer (acting team lead), Tessera Cloud
+February 2019 – July 2021, Berlin
+- Led the rebuild of the metadata layer from a Postgres monolith to a sharded Go service handling 40,000 writes per second.
+- Acted as team lead for the metadata squad for nine months before moving formally into management.
+
+Software Engineer, Halberd Systems (industrial IoT, 60 staff)
+April 2015 – January 2019, Berlin
+- Built the Halberd device-shadow service in Go; the service handled state synchronisation for 180,000 deployed sensors.
+- Wrote the company's first incident review template and ran the first eight reviews.
+
+Software Engineer, Krug & Lemberg (consultancy)
+September 2012 – March 2015, Munich
+- Delivered backend services for clients in logistics and energy across six engagements.
+
+SKILLS
+Distributed systems · Go · Python · PostgreSQL · Hiring and interviewing · Performance management · Incident command · Career frameworks · Cross-team roadmap planning · On-call rotation design
+
+EDUCATION
+MSc Computer Science, TU Munich, 2010 – 2012
+BSc Computer Science, University of Lagos, 2007 – 2010
+
+ADDITIONAL
+- Speaker at SREcon EMEA 2023 on incident review at scale.
+- Open-source maintainer of the go-shardkit library (3.2k stars).
