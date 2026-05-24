@@ -1,32 +1,40 @@
 #!/usr/bin/env node
 /**
- * Eval suite for the CV Job Tailor /analyse endpoint.
+ * Eval suite for the CV Job Tailor pipeline (/analyse + /design-cv-html).
  *
- * Reads (cvText, jobText) fixture pairs from fixtures/ and runs each through
- * the deployed Worker's /analyse, then checks objective properties of the
- * response — schema sanity, banned phrases, length budgets, evidence-only
- * preservation of names/dates/employers, no clearly fabricated skills.
+ * Reads (cvText, jobText) fixture pairs from fixtures/, posts each to the
+ * deployed Worker's /analyse, then chains the result into /design-cv-html
+ * and runs assertions on both stages — schema sanity, banned phrases,
+ * length budgets, evidence-only preservation, HTML structure and size.
  *
  * Usage:
- *   npm run eval                                # uses $VITE_CLOUDFLARE_WORKER_URL
- *   npm run eval -- https://worker.example/    # explicit URL
+ *   npm run eval                                # both stages, $VITE_CLOUDFLARE_WORKER_URL
+ *   npm run eval -- https://worker.example/    # both stages, explicit URL
+ *   npm run eval -- --analyse-only             # skip /design-cv-html (cheaper)
  *
  * Needs $VITE_ANALYSE_SHARED_SECRET if the Worker enforces shared-secret auth.
  *
- * Cost: each fixture is one /analyse call (~$0.30-0.50 on gpt-5 with medium
- * reasoning, depending on output length). Three fixtures ≈ $1-1.50 per run.
+ * Cost (gpt-5, medium reasoning):
+ *   /analyse per fixture ≈ $0.30-0.50
+ *   /design-cv-html per fixture ≈ $0.40-0.60
+ *   Full run on 3 fixtures ≈ $2-3. Use --analyse-only when iterating on
+ *   the analysis prompt to halve the cost.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runAssertions, truncate } from "./evalAssertions.mjs";
+import { runAssertions, runHtmlAssertions, truncate } from "./evalAssertions.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, "..", "fixtures");
 
+const args = process.argv.slice(2);
+const analyseOnly = args.includes("--analyse-only");
+const positional = args.filter((arg) => !arg.startsWith("--"));
+
 const workerUrl = normalizeWorkerUrl(
-  process.argv[2] || process.env.VITE_CLOUDFLARE_WORKER_URL || "",
+  positional[0] || process.env.VITE_CLOUDFLARE_WORKER_URL || "",
 );
 const sharedSecret = (process.env.VITE_ANALYSE_SHARED_SECRET || "").trim();
 
@@ -43,7 +51,8 @@ if (fixtures.length === 0) {
   process.exit(2);
 }
 
-console.log(`Eval target: ${workerUrl}/analyse`);
+console.log(`Eval target: ${workerUrl}`);
+console.log(`Stages: /analyse${analyseOnly ? "" : " + /design-cv-html"}`);
 console.log(`Fixtures: ${fixtures.length}\n`);
 
 let passedCount = 0;
@@ -89,19 +98,22 @@ function loadFixtures(dir) {
     }));
 }
 
-async function runFixture({ cvText, jobText }) {
+function buildHeaders() {
   const headers = { "Content-Type": "application/json" };
   if (sharedSecret) headers.Authorization = `Bearer ${sharedSecret}`;
+  return headers;
+}
 
+async function postJson(path, body) {
   let response;
   try {
-    response = await fetch(`${workerUrl}/analyse`, {
+    response = await fetch(`${workerUrl}${path}`, {
       method: "POST",
-      headers,
-      body: JSON.stringify({ cvText, jobText, employerHint: "" }),
+      headers: buildHeaders(),
+      body: JSON.stringify(body),
     });
   } catch (error) {
-    return { ok: false, failures: [`network error: ${error.message}`] };
+    return { ok: false, error: `network error: ${error.message}` };
   }
 
   const rawText = await response.text();
@@ -111,24 +123,68 @@ async function runFixture({ cvText, jobText }) {
   } catch {
     return {
       ok: false,
-      failures: [`worker returned non-JSON: ${rawText.slice(0, 200)}`],
+      error: `non-JSON response from ${path}: ${rawText.slice(0, 200)}`,
     };
   }
 
   if (!response.ok) {
     return {
       ok: false,
-      failures: [`HTTP ${response.status}: ${payload.error || rawText.slice(0, 200)}`],
+      error: `${path} returned HTTP ${response.status}: ${payload.error || rawText.slice(0, 200)}`,
     };
   }
 
-  const analysis = payload.analysis;
+  return { ok: true, payload };
+}
+
+async function runFixture({ cvText, jobText }) {
+  const analyseResult = await postJson("/analyse", { cvText, jobText, employerHint: "" });
+  if (!analyseResult.ok) {
+    return { ok: false, failures: [analyseResult.error] };
+  }
+  const analysis = analyseResult.payload.analysis;
   if (!analysis) {
-    return { ok: false, failures: ["no analysis in response payload"] };
+    return { ok: false, failures: ["no analysis in /analyse response payload"] };
   }
 
   const failures = runAssertions(cvText, analysis);
+
+  if (!analyseOnly) {
+    const design = await postJson("/design-cv-html", buildDesignPayload(analysis));
+    if (!design.ok) {
+      failures.push(design.error);
+    } else if (typeof design.payload.html !== "string") {
+      failures.push("no html in /design-cv-html response payload");
+    } else {
+      failures.push(...runHtmlAssertions(cvText, analysis, design.payload.html));
+    }
+  }
+
   return { ok: failures.length === 0, failures, preview: formatPreview(analysis) };
+}
+
+function buildDesignPayload(analysis) {
+  // Deliberately minimal: no employer homepage URL (skips Microlink), no logo
+  // URL (skips the upstream image fetch), no CV layout image. This exercises
+  // the "no reference images" fallback path in HTML_DESIGN_SYSTEM_PROMPT,
+  // which is what most real runs hit when the employer website is unknown.
+  return {
+    structuredCv: analysis.tailoredCv.fullCv,
+    brand: {
+      companyName: analysis.employerName || "Target employer",
+      primaryColor: "#1b4d3e",
+      accentColor: "#d3a84f",
+      backgroundColor: "#fffdf8",
+      textColor: "#25221e",
+      fontFamily: "Georgia",
+      palette: ["#1b4d3e", "#d3a84f", "#fffdf8"],
+    },
+    jobTitle: analysis.jobTitle || "",
+    employerName: analysis.employerName || "",
+    employerHomepageUrl: "",
+    logoUrl: "",
+    cvLayoutDataUrl: "",
+  };
 }
 
 function formatPreview(analysis) {
