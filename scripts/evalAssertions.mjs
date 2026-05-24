@@ -252,3 +252,133 @@ export function truncate(value, max) {
   const str = String(value);
   return str.length <= max ? str : `${str.slice(0, max)}…`;
 }
+
+// ---------------------------------------------------------------------------
+// /design-cv-html assertions
+// ---------------------------------------------------------------------------
+
+// Mirrors MAX_GENERATED_HTML_BYTES in worker/index.js.
+export const MAX_HTML_BYTES = 200_000;
+export const MAX_PAGE_SECTIONS = 2;
+
+const FORBIDDEN_HTML_TOKENS = [
+  "<script",
+  "</script",
+  "<iframe",
+  "<object",
+  "<embed",
+  "<form",
+  "<base",
+  "http-equiv=\"refresh\"",
+  "javascript:",
+  "vbscript:",
+];
+
+export function runHtmlAssertions(cvText, analysis, html) {
+  const failures = [];
+  failures.push(...assertHtmlShape(html));
+  // The structural checks must pass before semantic ones run — otherwise
+  // every regex check would cascade through a non-HTML payload.
+  if (failures.length > 0) return failures;
+  failures.push(...assertHtmlPageStructure(html));
+  failures.push(...assertHtmlPreservation(cvText, analysis, html));
+  failures.push(...assertHtmlSize(html));
+  return failures;
+}
+
+export function assertHtmlShape(html) {
+  const failures = [];
+  if (typeof html !== "string" || !html.trim()) {
+    return ["html is empty or not a string"];
+  }
+  if (!/^<!doctype html/i.test(html.trim())) {
+    failures.push("html does not start with <!DOCTYPE html>");
+  }
+  if (!/<html[\s>]/i.test(html)) failures.push("missing <html> tag");
+  if (!/<head[\s>]/i.test(html)) failures.push("missing <head> tag");
+  if (!/<body[\s>]/i.test(html)) failures.push("missing <body> tag");
+
+  const styleBlocks = (html.match(/<style\b[^>]*>/gi) || []).length;
+  if (styleBlocks !== 1) {
+    failures.push(`expected exactly one <style> block, found ${styleBlocks}`);
+  }
+
+  const lowered = html.toLowerCase();
+  for (const token of FORBIDDEN_HTML_TOKENS) {
+    if (lowered.includes(token)) {
+      failures.push(`html contains forbidden token "${token}"`);
+    }
+  }
+
+  if (!/content-security-policy/i.test(html)) {
+    failures.push("missing Content-Security-Policy meta tag (worker should inject one)");
+  }
+  return failures;
+}
+
+export function assertHtmlPageStructure(html) {
+  const failures = [];
+
+  if (!/@page\b/i.test(html)) {
+    failures.push("missing @page CSS declaration");
+  }
+  if (!/size\s*:\s*a4\s+portrait/i.test(html)) {
+    failures.push("missing 'size: A4 portrait' in @page");
+  }
+
+  const pageSections = (html.match(/<section[^>]*class\s*=\s*["'][^"']*\bpage\b/gi) || []).length;
+  if (pageSections < 1) {
+    failures.push("no <section class=\"page\"> elements present");
+  } else if (pageSections > MAX_PAGE_SECTIONS) {
+    failures.push(
+      `${pageSections} page sections found (max ${MAX_PAGE_SECTIONS})`,
+    );
+  }
+
+  return failures;
+}
+
+export function assertHtmlPreservation(cvText, analysis, html) {
+  const failures = [];
+  const htmlText = stripTags(html);
+  const htmlNormalised = normaliseForMatch(htmlText);
+
+  const fullCv = analysis?.tailoredCv?.fullCv;
+  if (!fullCv) return failures;
+
+  if (typeof fullCv.name === "string" && fullCv.name.trim()) {
+    if (!htmlNormalised.includes(normaliseForMatch(fullCv.name))) {
+      failures.push(`candidate name "${fullCv.name}" missing from rendered HTML`);
+    }
+  }
+
+  if (Array.isArray(fullCv.experience)) {
+    fullCv.experience.forEach((role, index) => {
+      const org = typeof role?.organisation === "string" ? role.organisation : "";
+      if (org && !htmlNormalised.includes(normaliseForMatch(org))) {
+        failures.push(
+          `fullCv.experience[${index}].organisation "${org}" missing from rendered HTML`,
+        );
+      }
+    });
+  }
+
+  void cvText; // currently we only check rendered preservation against the analysis
+  return failures;
+}
+
+export function assertHtmlSize(html) {
+  const bytes = new TextEncoder().encode(html).length;
+  if (bytes > MAX_HTML_BYTES) {
+    return [`html is ${bytes} bytes (max ${MAX_HTML_BYTES})`];
+  }
+  return [];
+}
+
+export function stripTags(html) {
+  return String(html)
+    // Drop the <style> contents entirely — CSS often contains text that
+    // would falsely satisfy preservation checks (e.g. font names).
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ");
+}

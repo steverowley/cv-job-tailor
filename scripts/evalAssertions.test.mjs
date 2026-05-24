@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   assertBannedPhrases,
+  assertHtmlPageStructure,
+  assertHtmlPreservation,
+  assertHtmlShape,
+  assertHtmlSize,
   assertLengthBudgets,
   assertNoFabricatedSkills,
   assertPreservation,
@@ -8,6 +12,8 @@ import {
   collectStringValues,
   normaliseForMatch,
   runAssertions,
+  runHtmlAssertions,
+  stripTags,
   wordCount,
 } from "./evalAssertions.mjs";
 
@@ -273,5 +279,185 @@ describe("wordCount", () => {
     expect(wordCount("")).toBe(0);
     expect(wordCount("   ")).toBe(0);
     expect(wordCount(null)).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTML assertion tests
+// ---------------------------------------------------------------------------
+
+function makeValidHtml({ name = "Jordan Patel", org = "Ledgerwave", pages = 1, extra = "" } = {}) {
+  const pageMarkup = Array.from({ length: pages }, () =>
+    `<section class="page"><h1>${name}</h1><p>${org}</p>${extra}</section>`,
+  ).join("");
+  return `<!DOCTYPE html>
+<html>
+  <head>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'">
+    <style>
+      @page { size: A4 portrait; margin: 0; }
+      .page { width: 210mm; min-height: 297mm; padding: 18mm; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>${pageMarkup}</body>
+</html>`;
+}
+
+describe("assertHtmlShape", () => {
+  it("accepts a minimal valid document", () => {
+    expect(assertHtmlShape(makeValidHtml())).toEqual([]);
+  });
+
+  it("rejects empty / non-string input", () => {
+    expect(assertHtmlShape("")).toEqual(["html is empty or not a string"]);
+    expect(assertHtmlShape(null)).toEqual(["html is empty or not a string"]);
+  });
+
+  it("rejects input missing DOCTYPE", () => {
+    const html = "<html><head></head><body></body></html>";
+    expect(assertHtmlShape(html).join("\n")).toMatch(/<!DOCTYPE html>/);
+  });
+
+  it("rejects multiple <style> blocks", () => {
+    const html = makeValidHtml().replace(
+      "<style>",
+      "<style></style><style>",
+    );
+    expect(assertHtmlShape(html).join("\n")).toMatch(/exactly one <style> block/);
+  });
+
+  it.each([
+    ["<script>alert(1)</script>", "<script"],
+    ["<iframe src=\"x\"></iframe>", "<iframe"],
+    ["<form></form>", "<form"],
+    ["<a href=\"javascript:alert(1)\">x</a>", "javascript:"],
+  ])("flags forbidden token in %s", (snippet, expectedToken) => {
+    const html = makeValidHtml({ extra: snippet });
+    const failures = assertHtmlShape(html);
+    expect(failures.join("\n")).toMatch(new RegExp(`forbidden token "${expectedToken}"`));
+  });
+
+  it("requires the CSP meta tag the worker injects", () => {
+    const html = makeValidHtml().replace(
+      /<meta http-equiv="Content-Security-Policy"[^>]*>/,
+      "",
+    );
+    expect(assertHtmlShape(html).join("\n")).toMatch(/Content-Security-Policy/);
+  });
+});
+
+describe("assertHtmlPageStructure", () => {
+  it("passes a document with @page A4 portrait and one .page section", () => {
+    expect(assertHtmlPageStructure(makeValidHtml())).toEqual([]);
+  });
+
+  it("flags missing @page declaration", () => {
+    const html = makeValidHtml().replace(/@page\s*\{[^}]*\}/, "");
+    expect(assertHtmlPageStructure(html).join("\n")).toMatch(/@page/);
+  });
+
+  it("flags missing A4 portrait directive", () => {
+    const html = makeValidHtml().replace("A4 portrait", "A5 landscape");
+    expect(assertHtmlPageStructure(html).join("\n")).toMatch(/A4 portrait/);
+  });
+
+  it("flags 0 page sections", () => {
+    const html = makeValidHtml().replace(/<section[^>]*>[\s\S]*?<\/section>/g, "");
+    expect(assertHtmlPageStructure(html).join("\n")).toMatch(/no <section/);
+  });
+
+  it("flags more than the two-page hard cap", () => {
+    const html = makeValidHtml({ pages: 3 });
+    expect(assertHtmlPageStructure(html).join("\n")).toMatch(/3 page sections found/);
+  });
+});
+
+describe("assertHtmlPreservation", () => {
+  const analysis = {
+    tailoredCv: {
+      fullCv: {
+        name: "Jordan Patel",
+        experience: [
+          { organisation: "Ledgerwave" },
+          { organisation: "Tilden Health" },
+        ],
+      },
+    },
+  };
+
+  it("passes when name and every employer appear as rendered text", () => {
+    const html = makeValidHtml({
+      extra: "<p>Lead Product Designer, Ledgerwave</p><p>Product Designer, Tilden Health</p>",
+    });
+    expect(assertHtmlPreservation("", analysis, html)).toEqual([]);
+  });
+
+  it("flags missing candidate name", () => {
+    const html = makeValidHtml({ name: "Someone Else" });
+    expect(assertHtmlPreservation("", analysis, html).join("\n")).toMatch(/Jordan Patel/);
+  });
+
+  it("flags missing employer organisation", () => {
+    const html = makeValidHtml({ org: "Ledgerwave" });
+    expect(
+      assertHtmlPreservation("", analysis, html).join("\n"),
+    ).toMatch(/Tilden Health/);
+  });
+
+  it("ignores employer names that only appear inside <style>", () => {
+    const html = `<!DOCTYPE html><html><head>
+      <meta http-equiv="Content-Security-Policy" content="x">
+      <style>/* Tilden Health brand */ @page { size: A4 portrait; }</style>
+    </head><body><section class="page"><h1>Jordan Patel</h1><p>Ledgerwave</p></section></body></html>`;
+    expect(
+      assertHtmlPreservation("", analysis, html).join("\n"),
+    ).toMatch(/Tilden Health/);
+  });
+});
+
+describe("assertHtmlSize", () => {
+  it("passes documents under the 200 KB cap", () => {
+    expect(assertHtmlSize(makeValidHtml())).toEqual([]);
+  });
+
+  it("flags documents over the cap", () => {
+    const filler = "x".repeat(220_000);
+    const html = makeValidHtml({ extra: filler });
+    expect(assertHtmlSize(html).join("\n")).toMatch(/bytes \(max 200000\)/);
+  });
+});
+
+describe("stripTags", () => {
+  it("drops <style> contents entirely so CSS text doesn't leak into checks", () => {
+    const html = "<style>.foo { font-family: Tilden; }</style><body>Real</body>";
+    expect(stripTags(html).trim()).toBe("Real");
+  });
+
+  it("removes all other tags but keeps text", () => {
+    expect(stripTags("<p>Hello <b>world</b></p>").trim()).toBe("Hello  world");
+  });
+});
+
+describe("runHtmlAssertions", () => {
+  const analysis = {
+    tailoredCv: {
+      fullCv: {
+        name: "Jordan Patel",
+        experience: [{ organisation: "Ledgerwave" }],
+      },
+    },
+  };
+
+  it("returns no failures for a well-formed HTML doc", () => {
+    const html = makeValidHtml({ extra: "<p>Lead Product Designer, Ledgerwave</p>" });
+    expect(runHtmlAssertions("", analysis, html)).toEqual([]);
+  });
+
+  it("bails out of deeper checks when the shape is wrong", () => {
+    const html = "not html at all";
+    const failures = runHtmlAssertions("", analysis, html);
+    // Shape failure surfaces; no preservation / size failures cascade.
+    expect(failures.some((f) => f.includes("DOCTYPE"))).toBe(true);
+    expect(failures.some((f) => f.includes("organisation"))).toBe(false);
   });
 });

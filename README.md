@@ -74,19 +74,23 @@ npm test
 
 ## Eval suite
 
-The eval suite runs three synthetic (CV, JD) fixtures through the deployed Worker's `/analyse` and checks objective properties of each response — schema sanity, banned phrases, length budgets, evidence-only preservation of names/dates/employers, and no clearly fabricated skills.
+The eval suite runs three synthetic (CV, JD) fixtures through the deployed Worker's `/analyse` and (by default) chains each result through `/design-cv-html`. It checks objective properties of both stages — schema sanity, banned phrases, length budgets, evidence-only preservation of names/dates/employers, no fabricated skills, and on the HTML side: valid structure, A4 portrait `@page`, the worker-injected CSP meta, the candidate name and every employer rendered as visible text, and ≤ 200 KB document size.
 
 ```bash
-# Uses $VITE_CLOUDFLARE_WORKER_URL by default
+# Uses $VITE_CLOUDFLARE_WORKER_URL by default; runs /analyse + /design-cv-html
 VITE_CLOUDFLARE_WORKER_URL=https://your.worker.dev \
 VITE_ANALYSE_SHARED_SECRET=... \
   npm run eval
 
-# Or pass the URL directly
+# Pass the URL directly
 npm run eval -- https://your.worker.dev
+
+# Skip the design step (cheaper, ~halves the cost) — useful when iterating on
+# the analysis prompt
+npm run eval -- --analyse-only
 ```
 
-Each fixture is one `/analyse` call (~$0.30–0.50 on gpt-5 with medium reasoning). Three fixtures ≈ $1–1.50 per run. Run it manually before merging a prompt change.
+Cost (gpt-5, medium reasoning): `/analyse` ≈ $0.30–0.50 per fixture; `/design-cv-html` ≈ $0.40–0.60 per fixture. A full run on three fixtures is ≈ **$2–3**; `--analyse-only` is ≈ $1–1.50.
 
 Fixtures live in `fixtures/<name>-cv.txt` and `fixtures/<name>-jd.txt`. To add a new pair, drop two files with the same `<name>` stem and re-run.
 
