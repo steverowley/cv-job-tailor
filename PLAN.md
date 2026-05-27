@@ -36,15 +36,22 @@ Claude-migration plan lives in git history.
 
 ## Open work
 
-- **Rate-limiting on `/analyse` and `/design-cv-html`.** The shared secret leaks
-  via the static bundle, so the real protection is `ALLOWED_ORIGINS` and Cloudflare
-  WAF. Add per-IP rate-limit rules in Cloudflare once usage warrants it.
-- **Prompt caching.** Both endpoints would benefit once token spend is meaningful —
-  the system prompts are ~3 KB and stable across requests.
-- **Worker module split.** `worker/index.js` is approaching 1400 lines in one file
-  (routing, OpenAI calls, sanitiser, URL validators, CSS scraper). Split into
-  per-endpoint modules + a shared lib once the next substantial change lands.
-- **`src/App.tsx` split.** ~900 lines, 22+ pieces of state in one component. Pull
-  the orchestrator (`runAnalysis`) and form panels into their own modules.
-- **Turnstile / hCaptcha.** Only if shared-secret abuse appears.
-- **Streaming analysis** with progress events.
+Tracked as GitHub issues — see those for full context and acceptance criteria.
+
+- [#31](https://github.com/steverowley/cv-job-tailor/issues/31) — **Rate-limiting on `/analyse` and `/design-cv-html`.** The shared secret
+  leaks via the static bundle, so the real protection is `ALLOWED_ORIGINS` and
+  Cloudflare WAF. Add per-IP rate-limit rules in Cloudflare once usage warrants it.
+- [PR #30](https://github.com/steverowley/cv-job-tailor/pull/30) — **Prompt caching.**
+  Both endpoints would benefit once token spend is meaningful — the system prompts
+  are ~3 KB and stable across requests. PR open.
+- [#32](https://github.com/steverowley/cv-job-tailor/issues/32) — **Worker module
+  split.** `worker/index.js` is approaching 1400 lines in one file (routing, OpenAI
+  calls, sanitiser, URL validators, CSS scraper). Split into per-endpoint modules
+  + a shared lib once the next substantial change lands.
+- [#33](https://github.com/steverowley/cv-job-tailor/issues/33) — **`src/App.tsx`
+  split.** ~900 lines, 22+ pieces of state in one component. Pull the orchestrator
+  (`runAnalysis`) and form panels into their own modules.
+- [#34](https://github.com/steverowley/cv-job-tailor/issues/34) — **Turnstile /
+  hCaptcha.** Only if shared-secret abuse appears.
+- [#36](https://github.com/steverowley/cv-job-tailor/issues/36) — **Streaming
+  analysis** with progress events.
