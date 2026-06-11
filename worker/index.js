@@ -384,53 +384,68 @@ const ANALYSIS_SCHEMA = {
 
 export default {
   async fetch(request, env) {
-    const origin = request.headers.get("origin") || "";
-    const corsHeaders = buildCorsHeaders(origin);
-
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
-    }
-
-    const url = new URL(request.url);
-
-    if (url.pathname === "/status" && request.method === "GET") {
-      if (origin && !ALLOWED_ORIGINS.has(origin)) {
-        return json({ error: "Origin not allowed." }, 403, corsHeaders);
-      }
+    const corsHeaders = buildCorsHeaders(request.headers.get("origin") || "");
+    try {
+      return await route(request, env, corsHeaders);
+    } catch (error) {
+      // Without this, an uncaught exception surfaces as Cloudflare's raw
+      // error page with no CORS headers, which the app can only report as
+      // "could not reach the Worker".
       return json(
-        {
-          hasOpenAiKey: Boolean(env.OPENAI_API_KEY),
-          requiresSharedSecret: Boolean(env.ANALYSE_SHARED_SECRET),
-          hasJinaKey: Boolean(env.JINA_API_KEY),
-        },
-        200,
+        { error: `Unexpected Worker error: ${error instanceof Error ? error.message : "unknown"}` },
+        500,
         corsHeaders,
       );
     }
-
-    if (!ALLOWED_ORIGINS.has(origin)) {
-      return json({ error: "This Worker only accepts requests from the CV Job Tailor app." }, 403, corsHeaders);
-    }
-
-    if (url.pathname === "/analyse" && request.method === "POST") {
-      return analyseWithOpenAI(request, env, corsHeaders);
-    }
-
-    if (url.pathname === "/design-cv-html" && request.method === "POST") {
-      return designCvHtml(request, env, corsHeaders);
-    }
-
-    if (url.pathname === "/read" && request.method === "POST") {
-      return readPage(request, env, corsHeaders);
-    }
-
-    return json(
-      { error: "Use GET /status, POST /read, POST /analyse, or POST /design-cv-html." },
-      404,
-      corsHeaders,
-    );
   },
 };
+
+async function route(request, env, corsHeaders) {
+  const origin = request.headers.get("origin") || "";
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders });
+  }
+
+  const url = new URL(request.url);
+
+  if (url.pathname === "/status" && request.method === "GET") {
+    if (origin && !ALLOWED_ORIGINS.has(origin)) {
+      return json({ error: "Origin not allowed." }, 403, corsHeaders);
+    }
+    return json(
+      {
+        hasOpenAiKey: Boolean(env.OPENAI_API_KEY),
+        requiresSharedSecret: Boolean(env.ANALYSE_SHARED_SECRET),
+        hasJinaKey: Boolean(env.JINA_API_KEY),
+      },
+      200,
+      corsHeaders,
+    );
+  }
+
+  if (!ALLOWED_ORIGINS.has(origin)) {
+    return json({ error: "This Worker only accepts requests from the CV Job Tailor app." }, 403, corsHeaders);
+  }
+
+  if (url.pathname === "/analyse" && request.method === "POST") {
+    return analyseWithOpenAI(request, env, corsHeaders);
+  }
+
+  if (url.pathname === "/design-cv-html" && request.method === "POST") {
+    return designCvHtml(request, env, corsHeaders);
+  }
+
+  if (url.pathname === "/read" && request.method === "POST") {
+    return readPage(request, env, corsHeaders);
+  }
+
+  return json(
+    { error: "Use GET /status, POST /read, POST /analyse, or POST /design-cv-html." },
+    404,
+    corsHeaders,
+  );
+}
 
 async function readPage(request, env, corsHeaders) {
   // Same auth as /analyse: without it, anyone who sets a forged Origin header
