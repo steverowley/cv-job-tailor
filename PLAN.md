@@ -23,7 +23,7 @@ Claude-migration plan lives in git history.
 
 - Cloudflare Worker holds `OPENAI_API_KEY`, `ANALYSE_SHARED_SECRET`, and `JINA_API_KEY`
   as secrets. The static site uses a thin client and never holds the key.
-- `/analyse` and `/design-cv-html` require `Authorization: Bearer <ANALYSE_SHARED_SECRET>`
+- `/read`, `/analyse`, and `/design-cv-html` require `Authorization: Bearer <ANALYSE_SHARED_SECRET>`
   when the shared secret is set. The shared secret is embedded in the static bundle
   and is therefore obscurity, not a secret — the real boundary is `ALLOWED_ORIGINS`
   plus any Cloudflare WAF rate-limiting.
@@ -33,6 +33,14 @@ Claude-migration plan lives in git history.
   direct fetch is blocked (403/410/429/451/5xx).
 - `pdfjs-dist` and `mammoth` are lazy-loaded so the landing page does not ship them.
 - `wrangler.toml` compatibility date is pinned and refreshed periodically.
+- Prompt caching (`prompt_cache_key`) on both OpenAI calls (#30).
+- Worker split into `endpoints/` + `lib/` modules with colocated tests (#32).
+- `src/App.tsx` split into hooks + panels; the pipeline orchestrator is a plain
+  tested function (#33).
+- `/analyse` streams coarse progress events (SSE) when the client asks for
+  `text/event-stream`; plain JSON stays the default (#36).
+- ESLint (typescript-eslint + react-hooks) runs in CI alongside typecheck,
+  tests, and build.
 
 ## Open work
 
@@ -40,18 +48,8 @@ Tracked as GitHub issues — see those for full context and acceptance criteria.
 
 - [#31](https://github.com/steverowley/cv-job-tailor/issues/31) — **Rate-limiting on `/analyse` and `/design-cv-html`.** The shared secret
   leaks via the static bundle, so the real protection is `ALLOWED_ORIGINS` and
-  Cloudflare WAF. Add per-IP rate-limit rules in Cloudflare once usage warrants it.
-- [PR #30](https://github.com/steverowley/cv-job-tailor/pull/30) — **Prompt caching.**
-  Both endpoints would benefit once token spend is meaningful — the system prompts
-  are ~3 KB and stable across requests. PR open.
-- [#32](https://github.com/steverowley/cv-job-tailor/issues/32) — **Worker module
-  split.** `worker/index.js` is approaching 1400 lines in one file (routing, OpenAI
-  calls, sanitiser, URL validators, CSS scraper). Split into per-endpoint modules
-  + a shared lib once the next substantial change lands.
-- [#33](https://github.com/steverowley/cv-job-tailor/issues/33) — **`src/App.tsx`
-  split.** ~900 lines, 22+ pieces of state in one component. Pull the orchestrator
-  (`runAnalysis`) and form panels into their own modules.
+  Cloudflare WAF. The recommended rules and OpenAI spend caps are documented in
+  the README ("Protecting the OpenAI bill"); the dashboard configuration itself
+  is the remaining step.
 - [#34](https://github.com/steverowley/cv-job-tailor/issues/34) — **Turnstile /
   hCaptcha.** Only if shared-secret abuse appears.
-- [#36](https://github.com/steverowley/cv-job-tailor/issues/36) — **Streaming
-  analysis** with progress events.

@@ -51,6 +51,15 @@ https://cv-job-tailor-reader.your-account.workers.dev
 
 You can also paste the Worker URL into the app's Worker field for immediate testing. The app keeps it in browser session storage.
 
+### Protecting the OpenAI bill
+
+The shared secret ships inside the public JS bundle, so treat it as a speed bump, not a lock. Two dashboard settings bound the damage if someone extracts it (neither needs a code change):
+
+1. **OpenAI spend caps.** In the OpenAI dashboard under *Settings → Limits*, set a monthly budget and a notification threshold. This is the hard backstop: even if every other layer fails, the bill stops here. A full pipeline run costs ≈ $0.70–1.10, so a $20–30 monthly cap leaves generous headroom for personal use.
+2. **Cloudflare rate limiting.** In the Cloudflare dashboard under *Security → WAF → Rate limiting rules*, add a per-IP rule for `POST /analyse` and `POST /design-cv-html` (for example: 10 requests per minute per IP, block for an hour on breach, returning 429). A second, looser rule on `POST /read` (e.g. 30/min) stops the page-fetch proxy being scripted. Free-plan zones get one rate-limiting rule — prioritise the OpenAI endpoints.
+
+If abuse appears despite both (rotating IPs), the contingency plan is a Turnstile challenge — tracked in [#34](https://github.com/steverowley/cv-job-tailor/issues/34).
+
 ## Local development
 
 ```bash
