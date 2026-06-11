@@ -20,6 +20,12 @@ export function CvUploadPanel(props: {
       {props.cvText ? (
         <p className="hint">{props.cvText.length.toLocaleString()} characters extracted locally.</p>
       ) : null}
+      {props.cvFileName.toLowerCase().endsWith(".docx") ? (
+        <p className="hint">
+          Tip: a PDF upload also gives the designer an image of your current layout to mirror — DOCX
+          text is used, but its layout can't be read.
+        </p>
+      ) : null}
     </Panel>
   );
 }
