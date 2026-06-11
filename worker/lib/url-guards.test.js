@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   isAllowedStylesheetUrl,
   isPrivateOrLocalHost,
+  isReadableContent,
   validateTargetUrl,
-} from "./index.js";
+} from "./url-guards.js";
 
 describe("isPrivateOrLocalHost", () => {
   it.each([
@@ -110,5 +111,19 @@ describe("isAllowedStylesheetUrl", () => {
 
   it("rejects non-http(s) schemes", () => {
     expect(isAllowedStylesheetUrl("file:///etc/passwd", base)).toBe(false);
+  });
+});
+
+describe("isReadableContent", () => {
+  it("accepts empty/missing content-type and the documented text types", () => {
+    expect(isReadableContent("")).toBe(true);
+    expect(isReadableContent("text/html; charset=utf-8")).toBe(true);
+    expect(isReadableContent("text/plain")).toBe(true);
+    expect(isReadableContent("application/xhtml+xml")).toBe(true);
+  });
+
+  it("rejects binary types", () => {
+    expect(isReadableContent("application/pdf")).toBe(false);
+    expect(isReadableContent("image/png")).toBe(false);
   });
 });

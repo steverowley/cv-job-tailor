@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchWithTimeout, isAbortError } from "./index.js";
+import { fetchWithTimeout, isAbortError } from "./http.js";
 
 describe("fetchWithTimeout", () => {
   let fetchSpy;

@@ -3,7 +3,7 @@ import {
   decodeHtmlAndCssEscapes,
   injectGeneratedHtmlCsp,
   sanitizeGeneratedHtml,
-} from "./index.js";
+} from "./sanitiser.js";
 
 const MINIMAL_DOC =
   '<!DOCTYPE html><html><head><style>body{color:#000}</style></head><body><h1>CV</h1></body></html>';
