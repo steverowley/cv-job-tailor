@@ -574,6 +574,12 @@ async function analyseWithOpenAI(request, env, corsHeaders) {
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userMessage },
     ],
+    // The /analyse SYSTEM_PROMPT is large (~800 tokens) and stable across
+    // requests. OpenAI auto-caches identical prefixes ≥ 1024 tokens, and
+    // prompt_cache_key routes identical-key requests to the same machine,
+    // which materially improves hit rate. Cached input tokens are billed
+    // at ~50% off — meaningful at scale.
+    prompt_cache_key: "cv-job-tailor-analyse",
     reasoning: { effort: "medium" },
     text: {
       format: {
@@ -735,6 +741,12 @@ async function designCvHtml(request, env, corsHeaders) {
       { role: "system", content: HTML_DESIGN_SYSTEM_PROMPT },
       { role: "user", content: userContent },
     ],
+    // HTML_DESIGN_SYSTEM_PROMPT is ~1500 tokens and never changes per
+    // request. See the /analyse handler for the rationale on
+    // prompt_cache_key. The design path benefits more — larger system
+    // prompt, more reasoning tokens — so the cached-input discount is
+    // worth the most here.
+    prompt_cache_key: "cv-job-tailor-design",
     reasoning: { effort: "medium" },
     text: {
       format: {
