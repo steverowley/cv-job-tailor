@@ -6,6 +6,7 @@ import {
   extractOpenAIError,
   extractOpenAIStructuredAnalysis,
 } from "../lib/openai.js";
+import { formatSseEvent, parseSseStream } from "../lib/sse.js";
 
 const MAX_TEXT_LENGTH = 60_000;
 
@@ -322,6 +323,13 @@ export async function analyseWithOpenAI(request, env, corsHeaders) {
     },
   };
 
+  // Clients that ask for an event stream get coarse progress events sourced
+  // from OpenAI's own stream; everything else (the eval suite, older deploys
+  // of the frontend) keeps the original JSON response.
+  if ((request.headers.get("accept") || "").includes("text/event-stream")) {
+    return streamAnalysis(request, env, corsHeaders, body);
+  }
+
   let response;
   try {
     response = await fetchWithTimeout(
@@ -366,4 +374,163 @@ export async function analyseWithOpenAI(request, env, corsHeaders) {
   }
 
   return json({ analysis }, 200, corsHeaders);
+}
+
+async function streamAnalysis(request, env, corsHeaders, body) {
+  // Like fetchWithTimeout, the timeout only guards time-to-headers. The
+  // controller additionally follows the client's own abort signal for the
+  // whole stream, so a closed tab cancels the upstream OpenAI call instead
+  // of paying for tokens nobody will read.
+  const controller = new AbortController();
+  const onClientAbort = () => controller.abort();
+  if (request.signal) {
+    if (request.signal.aborted) controller.abort();
+    else request.signal.addEventListener("abort", onClientAbort);
+  }
+  const timeoutId = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS);
+
+  let upstream;
+  try {
+    upstream = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ...body, stream: true }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (isAbortError(error)) {
+      return json(
+        { error: `OpenAI analysis did not respond within ${Math.round(OPENAI_TIMEOUT_MS / 1000)}s.` },
+        504,
+        corsHeaders,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!upstream.ok) {
+    const rawText = await upstream.text();
+    const message = extractOpenAIError(rawText) || `OpenAI analysis failed with HTTP ${upstream.status}.`;
+    return json({ error: message }, 502, corsHeaders);
+  }
+
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const map = createAnalysisStreamMapper();
+
+  (async () => {
+    try {
+      for await (const frame of parseSseStream(upstream.body)) {
+        let event;
+        try {
+          event = JSON.parse(frame.data);
+        } catch {
+          continue;
+        }
+        for (const outgoing of map(event)) {
+          await writer.write(encoder.encode(formatSseEvent(outgoing)));
+          if (outgoing.type === "complete" || outgoing.type === "error") {
+            return;
+          }
+        }
+      }
+      await writer.write(
+        encoder.encode(formatSseEvent({ type: "error", error: "OpenAI stream ended unexpectedly." })),
+      );
+    } catch (error) {
+      try {
+        await writer.write(
+          encoder.encode(
+            formatSseEvent({
+              type: "error",
+              error: error instanceof Error ? error.message : "The analysis stream failed.",
+            }),
+          ),
+        );
+      } catch {
+        // The client is gone; nothing left to tell it.
+      }
+      controller.abort();
+    } finally {
+      if (request.signal) {
+        request.signal.removeEventListener("abort", onClientAbort);
+      }
+      try {
+        await writer.close();
+      } catch {
+        // Already closed or errored.
+      }
+    }
+  })();
+
+  return new Response(readable, {
+    status: 200,
+    headers: {
+      ...corsHeaders,
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+    },
+  });
+}
+
+// Maps OpenAI Responses stream events to the coarse events the frontend
+// understands: stage markers, byte-count progress, then a terminal
+// complete/error. Stateful across calls; create one mapper per stream.
+export function createAnalysisStreamMapper() {
+  let sawReasoning = false;
+  let sawDraft = false;
+  let text = "";
+  let lastReportedLength = 0;
+
+  return function map(event) {
+    const outgoing = [];
+    const type = event?.type;
+    if (type === "response.created") {
+      outgoing.push({ type: "stage", stage: "accepted" });
+    } else if (type === "response.output_item.added" && event.item?.type === "reasoning" && !sawReasoning) {
+      sawReasoning = true;
+      outgoing.push({ type: "stage", stage: "reasoning" });
+    } else if (type === "response.output_text.delta") {
+      if (!sawDraft) {
+        sawDraft = true;
+        outgoing.push({ type: "stage", stage: "drafting" });
+      }
+      text += typeof event.delta === "string" ? event.delta : "";
+      if (text.length - lastReportedLength >= 2_000) {
+        lastReportedLength = text.length;
+        outgoing.push({ type: "progress", chars: text.length });
+      }
+    } else if (type === "response.completed") {
+      let analysis = null;
+      if (text.trim()) {
+        try {
+          analysis = JSON.parse(text);
+        } catch {
+          analysis = null;
+        }
+      }
+      if (!analysis) {
+        analysis = extractOpenAIStructuredAnalysis(event.response);
+      }
+      outgoing.push(
+        analysis
+          ? { type: "complete", analysis }
+          : { type: "error", error: "OpenAI returned no structured analysis." },
+      );
+    } else if (type === "response.failed") {
+      outgoing.push({
+        type: "error",
+        error: event.response?.error?.message || "OpenAI analysis failed.",
+      });
+    } else if (type === "error") {
+      outgoing.push({ type: "error", error: event.message || "OpenAI stream error." });
+    }
+    return outgoing;
+  };
 }

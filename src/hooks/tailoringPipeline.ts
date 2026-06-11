@@ -74,6 +74,8 @@ export async function runTailoringPipeline(
       jobText: job.text,
       cvText: inputs.cvText,
       employerHint: workingBrand.companyName || job.brand.companyName,
+      // Real checkpoints streamed from the Worker, not fake timers.
+      onProgress: (label) => fx.setMessage(label),
     });
   } catch (error) {
     if (error instanceof AnalysisError) {

@@ -1,9 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AnalysisError, analyseCvAgainstJob } from "./analysis";
+import { AnalysisError, analyseCvAgainstJob, consumeAnalysisEventStream } from "./analysis";
 
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+function sseBody(frames: string[]): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  return new ReadableStream({
+    start(controller) {
+      for (const frame of frames) {
+        controller.enqueue(encoder.encode(frame));
+      }
+      controller.close();
+    },
+  });
+}
+
+const VALID_ANALYSIS = {
+  jobTitle: "Engineer",
+  employerName: "Acme",
+  skills: [],
+  tailoredCv: { fullCv: { experience: [] } },
+};
 
 describe("analyseCvAgainstJob", () => {
   it("rejects an empty Worker URL", async () => {
@@ -99,5 +118,74 @@ describe("analyseCvAgainstJob", () => {
         cvText: "CV",
       }),
     ).rejects.toThrow(/tailoredCv\.fullCv/);
+  });
+
+  it("asks for an event stream when onProgress is provided and consumes it", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        sseBody([
+          'data: {"type":"stage","stage":"accepted"}\n\n',
+          'data: {"type":"stage","stage":"drafting"}\n\n',
+          'data: {"type":"progress","chars":4096}\n\n',
+          `data: ${JSON.stringify({ type: "complete", analysis: VALID_ANALYSIS })}\n\n`,
+        ]),
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+    );
+
+    const labels: string[] = [];
+    const result = await analyseCvAgainstJob({
+      workerUrl: "https://worker.example.com",
+      jobText: "JOB",
+      cvText: "CV",
+      onProgress: (label) => labels.push(label),
+    });
+
+    const headers = (fetchSpy.mock.calls[0][1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Accept).toBe("text/event-stream");
+    expect(result.jobTitle).toBe("Engineer");
+    expect(labels.length).toBe(3);
+    expect(labels[2]).toMatch(/4 KB written/);
+  });
+
+  it("falls back to plain JSON when the Worker ignores the stream request", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ analysis: VALID_ANALYSIS }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const result = await analyseCvAgainstJob({
+      workerUrl: "https://worker.example.com",
+      jobText: "JOB",
+      cvText: "CV",
+      onProgress: () => {},
+    });
+    expect(result.employerName).toBe("Acme");
+  });
+});
+
+describe("consumeAnalysisEventStream", () => {
+  it("throws an AnalysisError carrying the streamed error message", async () => {
+    await expect(
+      consumeAnalysisEventStream(sseBody(['data: {"type":"error","error":"quota exhausted"}\n\n'])),
+    ).rejects.toMatchObject({ name: "AnalysisError", message: "quota exhausted" });
+  });
+
+  it("throws when the stream ends without a terminal event", async () => {
+    await expect(
+      consumeAnalysisEventStream(sseBody(['data: {"type":"stage","stage":"accepted"}\n\n'])),
+    ).rejects.toThrow(/ended before a result/);
+  });
+
+  it("ignores malformed frames and keeps reading", async () => {
+    const result = await consumeAnalysisEventStream(
+      sseBody([
+        "data: not-json\n\n",
+        `data: ${JSON.stringify({ type: "complete", analysis: VALID_ANALYSIS })}\n\n`,
+      ]),
+    );
+    expect(result.jobTitle).toBe("Engineer");
   });
 });
