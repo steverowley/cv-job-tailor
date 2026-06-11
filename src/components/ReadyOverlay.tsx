@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { BadgeCheck, Download, Maximize2, Sparkles, X } from "lucide-react";
 
 export function ReadyOverlay({
@@ -13,6 +14,40 @@ export function ReadyOverlay({
   onOpenCv: () => void;
   onDownload: () => void;
 }) {
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // aria-modal alone doesn't stop Tab from escaping into the page behind the
+  // dialog, so trap focus inside the card and restore it on close.
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(card.querySelectorAll<HTMLElement>("button, [href], [tabindex]:not([tabindex='-1'])"));
+    focusables()[0]?.focus();
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+
+    card.addEventListener("keydown", onKeyDown);
+    return () => {
+      card.removeEventListener("keydown", onKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, []);
+
   return (
     <div
       className="overlay"
@@ -21,7 +56,7 @@ export function ReadyOverlay({
       aria-labelledby="ready-overlay-title"
       onClick={onDismiss}
     >
-      <div className="overlay-card" onClick={(event) => event.stopPropagation()}>
+      <div className="overlay-card" ref={cardRef} onClick={(event) => event.stopPropagation()}>
         <button
           className="overlay-close"
           type="button"
