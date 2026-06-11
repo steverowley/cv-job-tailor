@@ -1,0 +1,31 @@
+name: Eval suite
+
+# Manual-only: a full run costs ≈ $2-3 in OpenAI spend (see README), so it
+# never runs automatically. Trigger it from the Actions tab after prompt or
+# Worker changes.
+on:
+  workflow_dispatch:
+    inputs:
+      analyse_only:
+        description: "Skip /design-cv-html (≈ halves the cost)"
+        type: boolean
+        default: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Run eval suite
+        run: npm run eval -- ${{ inputs.analyse_only && '--analyse-only' || '' }}
+        env:
+          VITE_CLOUDFLARE_WORKER_URL: ${{ secrets.VITE_CLOUDFLARE_WORKER_URL || vars.VITE_CLOUDFLARE_WORKER_URL }}
+          VITE_ANALYSE_SHARED_SECRET: ${{ secrets.VITE_ANALYSE_SHARED_SECRET }}

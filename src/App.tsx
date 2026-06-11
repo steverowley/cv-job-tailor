@@ -1,119 +1,43 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  AlertTriangle,
-  BadgeCheck,
-  Download,
-  FileText,
-  Link,
-  Maximize2,
-  Minimize2,
-  Palette,
-  Server,
-  Sparkles,
-  Upload,
-  X,
-} from "lucide-react";
-import { extractCvText, extractFirstPageImage, looksLikeUsableCv } from "./documentParser";
-import { BrandReadError, ReadDiagnostic, readEmployerBrand, readJobDescription } from "./jobReader";
-import { AnalysisError, analyseCvAgainstJob } from "./analysis";
-import { CvDesignerError, DesignInputs, designCvHtml, printCvHtml } from "./cvDesigner";
+import { AlertTriangle, BadgeCheck, Download, Maximize2, Minimize2, Sparkles } from "lucide-react";
 import { CvHtmlPreview } from "./CvHtmlPreview";
-import { AnalysisResult, BrandSettings } from "./types";
-
-type Status = "idle" | "reading" | "designing" | "analysing" | "ready" | "exporting" | "error";
-type WorkerStatus = "idle" | "checking" | "configured" | "missing-key" | "unreachable";
-
-const DEFAULT_BRAND: BrandSettings = {
-  companyName: "Target employer",
-  primaryColor: "#1b4d3e",
-  accentColor: "#d3a84f",
-  fontFamily: "Georgia",
-};
-
-const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
-// NOTE: this token is inlined into the static JS bundle and is therefore visible to any visitor.
-// It is anti-abuse obscurity, not a secret. The real boundary is ALLOWED_ORIGINS on the Worker
-// plus Cloudflare-side rate limiting. Do not rely on this for confidentiality.
-const ANALYSE_SHARED_SECRET = import.meta.env.VITE_ANALYSE_SHARED_SECRET || "";
+import { DesignInputsStrip } from "./components/DesignInputsStrip";
+import { ReadDiagnostics } from "./components/ReadDiagnostics";
+import { ReadyOverlay } from "./components/ReadyOverlay";
+import { WorkingIndicator, getWorkingLabel } from "./components/WorkingIndicator";
+import { useAnalysis } from "./hooks/useAnalysis";
+import { DEFAULT_BRAND, useBrandOverrides } from "./hooks/useBrandOverrides";
+import { useWorkerStatus } from "./hooks/useWorkerStatus";
+import { BrandPanel } from "./panels/BrandPanel";
+import { CvUploadPanel } from "./panels/CvUploadPanel";
+import { JobPanel } from "./panels/JobPanel";
+import { ReviewPanel } from "./panels/ReviewPanel";
+import { WorkerPanel } from "./panels/WorkerPanel";
 
 export function App() {
+  const worker = useWorkerStatus();
+  const pipeline = useAnalysis(worker.workerUrl);
+  const branding = useBrandOverrides({
+    workerUrl: worker.workerUrl,
+    setStatus: pipeline.setStatus,
+    setReadDiagnostics: pipeline.setReadDiagnostics,
+  });
+
   const [jobUrl, setJobUrl] = useState("");
   const [jobText, setJobText] = useState("");
-  const [employerWebsiteUrl, setEmployerWebsiteUrl] = useState("");
-  const [employerBrandSource, setEmployerBrandSource] = useState("");
-  const [workerUrl, setWorkerUrl] = useState(
-    () => sessionStorage.getItem("cv-job-tailor-worker-url") || DEFAULT_WORKER_URL,
-  );
-  const [isEditingWorkerUrl, setIsEditingWorkerUrl] = useState(() => !DEFAULT_WORKER_URL);
-  const [workerStatus, setWorkerStatus] = useState<WorkerStatus>("idle");
-  const [workerStatusDetail, setWorkerStatusDetail] = useState("");
-  const [cvFileName, setCvFileName] = useState("");
-  const [cvText, setCvText] = useState("");
-  const [cvLayoutDataUrl, setCvLayoutDataUrl] = useState("");
-  const [brand, setBrand] = useState<BrandSettings>(DEFAULT_BRAND);
-  const [brandGenerated, setBrandGenerated] = useState(false);
-  const [designedHtml, setDesignedHtml] = useState<string>("");
-  const [designInputs, setDesignInputs] = useState<DesignInputs | null>(null);
-  const [analysis, setAnalysis] = useState<AnalysisResult | null>(null);
-  const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
-  const [status, setStatus] = useState<Status>("idle");
-  const [message, setMessage] = useState("");
-  const [readDiagnostics, setReadDiagnostics] = useState<ReadDiagnostic[]>([]);
-  const [brandMessage, setBrandMessage] = useState(
-    "Add the employer website to make the PDF match their public brand signals.",
-  );
   const [showJobFallback, setShowJobFallback] = useState(false);
-  const [showBrandFallback, setShowBrandFallback] = useState(false);
+  const [activeOutput, setActiveOutput] = useState<"review" | "cv">("review");
   const [showReadyOverlay, setShowReadyOverlay] = useState(false);
   const [isOutputFullscreen, setIsOutputFullscreen] = useState(false);
 
   const canAnalyse = useMemo(
-    () => workerStatus === "configured" && (jobUrl.trim() || jobText.trim()) && cvText.trim(),
-    [workerStatus, jobText, jobUrl, cvText],
+    () =>
+      worker.workerStatus === "configured" &&
+      (jobUrl.trim() || jobText.trim()) &&
+      pipeline.cvText.trim(),
+    [worker.workerStatus, jobText, jobUrl, pipeline.cvText],
   );
-  const hasConfiguredWorkerUrl = Boolean(DEFAULT_WORKER_URL && workerUrl.trim() === DEFAULT_WORKER_URL);
-  const workingLabel = getWorkingLabel(status, workerStatus);
-
-  useEffect(() => {
-    if (!workerUrl.trim()) {
-      setWorkerStatus("idle");
-      setWorkerStatusDetail("");
-      return;
-    }
-
-    const controller = new AbortController();
-    async function checkWorker() {
-      try {
-        setWorkerStatus("checking");
-        setWorkerStatusDetail("");
-        const endpoint = `${normalizeWorkerUrl(workerUrl)}/status`;
-        const response = await fetch(endpoint, {
-          signal: controller.signal,
-        });
-        const rawText = await response.text();
-        const payload = rawText
-          ? (JSON.parse(rawText) as { error?: string; hasOpenAiKey?: boolean })
-          : {};
-        if (!response.ok) {
-          setWorkerStatusDetail(
-            `Status check reached ${endpoint}, but the Worker returned ${response.status}. ${payload.error || rawText}`,
-          );
-          setWorkerStatus("unreachable");
-          return;
-        }
-        setWorkerStatusDetail(`Checked ${endpoint}.`);
-        setWorkerStatus(payload.hasOpenAiKey ? "configured" : "missing-key");
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          setWorkerStatus("unreachable");
-          setWorkerStatusDetail(error instanceof Error ? error.message : "The Worker status check failed.");
-        }
-      }
-    }
-
-    checkWorker();
-    return () => controller.abort();
-  }, [workerUrl]);
+  const workingLabel = getWorkingLabel(pipeline.status, worker.workerStatus);
 
   useEffect(() => {
     if (!isOutputFullscreen && !showReadyOverlay) return;
@@ -138,201 +62,24 @@ export function App() {
     };
   }, [isOutputFullscreen]);
 
-  function saveWorkerUrl(value: string) {
-    setWorkerUrl(value);
-    if (value.trim()) {
-      sessionStorage.setItem("cv-job-tailor-worker-url", value.trim());
-    } else {
-      sessionStorage.removeItem("cv-job-tailor-worker-url");
-    }
-  }
-
-  function resetWorkerUrl() {
-    sessionStorage.removeItem("cv-job-tailor-worker-url");
-    setWorkerUrl(DEFAULT_WORKER_URL);
-    setIsEditingWorkerUrl(false);
-  }
-
-  async function handleCvUpload(file?: File) {
-    if (!file) {
-      return;
-    }
-
-    try {
-      setStatus("reading");
-      setMessage("Reading CV text locally in your browser...");
-      setReadDiagnostics([]);
-      setCvLayoutDataUrl("");
-      setCvText("");
-      setCvFileName("");
-      setAnalysis(null);
-      setDesignedHtml("");
-      setDesignInputs(null);
-      const text = await extractCvText(file);
-      if (!looksLikeUsableCv(text)) {
-        throw new Error(
-          "The CV text looks too short or did not parse readable words. Try a different PDF/DOCX export.",
-        );
-      }
-      setCvText(text);
-      setCvFileName(file.name);
-      const layoutImage = await extractFirstPageImage(file);
-      if (layoutImage) {
-        setCvLayoutDataUrl(layoutImage);
-      }
-      setMessage(`Loaded ${file.name}. Nothing has been uploaded to a server.`);
-      setStatus("idle");
-    } catch (error) {
-      setCvText("");
-      setCvFileName("");
-      setCvLayoutDataUrl("");
-      showError(error);
-    }
-  }
-
   async function runAnalysis() {
-    if (status === "analysing" || status === "designing") {
-      return;
-    }
-    setStatus("analysing");
-    setMessage("Reading the job details and comparing them with the CV...");
-    setReadDiagnostics([]);
-    setDesignedHtml("");
-    setDesignInputs(null);
-
-    let job: Awaited<ReturnType<typeof readJobDescription>>;
-    try {
-      job = await readJobDescription(jobUrl, jobText, workerUrl);
-    } catch (error) {
-      setShowJobFallback(true);
-      setReadDiagnostics(getErrorDiagnostics(error));
-      showError(error);
-      return;
-    }
-    if (job.diagnostics?.length) {
-      setReadDiagnostics(job.diagnostics);
-    }
-    let workingBrand = brand;
-    if (!employerWebsiteUrl.trim()) {
-      workingBrand = {
-        ...brand,
-        ...job.brand,
-        companyName:
-          brand.companyName === DEFAULT_BRAND.companyName ? job.brand.companyName : brand.companyName,
-      };
-      setBrand(workingBrand);
-      setBrandGenerated(true);
-    }
-
-    let result: AnalysisResult;
-    try {
-      result = await analyseCvAgainstJob({
-        workerUrl,
-        sharedSecret: ANALYSE_SHARED_SECRET,
-        jobText: job.text,
-        cvText,
-        employerHint: workingBrand.companyName || job.brand.companyName,
-      });
-    } catch (error) {
-      if (error instanceof AnalysisError) {
-        setReadDiagnostics(getErrorDiagnostics(error));
-      }
-      showError(error);
-      return;
-    }
-
-    setAnalysis(result);
-    setMessage(job.warning || "Designing an on-brand CV from the employer's homepage...");
-    setStatus("designing");
-
-    try {
-      const { html, inputs } = await designCvHtml({
-        workerUrl,
-        sharedSecret: ANALYSE_SHARED_SECRET,
-        structuredCv: result.tailoredCv.fullCv,
-        brand: workingBrand,
-        employerHomepageUrl: employerWebsiteUrl.trim(),
-        jobTitle: result.jobTitle,
-        employerName: result.employerName || workingBrand.companyName,
-        cvLayoutDataUrl,
-      });
-      setDesignedHtml(html);
-      setDesignInputs(inputs);
-    } catch (designError) {
-      setMessage(
-        `Analysis succeeded but the on-brand CV design failed. ${
-          designError instanceof Error ? designError.message : ""
-        }`.trim(),
-      );
-      setStatus("error");
-      return;
-    }
-
-    setActiveOutput("cv");
-    setMessage("Analysis complete. Preview the CV or download the PDF.");
-    setStatus("ready");
-    setShowReadyOverlay(true);
-  }
-
-  async function generateBrand() {
-    try {
-      setStatus("reading");
-      setReadDiagnostics([]);
-      setBrandMessage(
-        employerBrandSource.trim()
-          ? "Generating brand from the pasted employer website details..."
-          : "Reading public brand signals from the employer website...",
-      );
-      const generatedBrand = await readEmployerBrand(employerWebsiteUrl, employerBrandSource, workerUrl);
-      setBrand(generatedBrand);
-      setBrandGenerated(true);
-      setShowBrandFallback(false);
-      setBrandMessage("Brand generated. The CV will be designed on this brand when you analyse.");
-      setStatus("idle");
-    } catch (error) {
-      if (error instanceof BrandReadError) {
-        const fallback = { ...brand, ...error.fallbackBrand };
-        setBrand(fallback);
-        setBrandGenerated(true);
-        setReadDiagnostics(error.diagnostics);
-      } else {
-        setReadDiagnostics(getErrorDiagnostics(error));
-      }
-      setShowBrandFallback(true);
-      setBrandMessage(error instanceof Error ? error.message : "The employer website could not be read.");
-      setStatus("error");
+    const ok = await pipeline.runAnalysis({
+      jobUrl,
+      jobText,
+      employerWebsiteUrl: branding.employerWebsiteUrl,
+      brand: branding.brand,
+      defaultCompanyName: DEFAULT_BRAND.companyName,
+      onJobReadFailed: () => setShowJobFallback(true),
+      applyDerivedBrand: branding.applyDerivedBrand,
+    });
+    if (ok) {
+      setActiveOutput("cv");
+      setShowReadyOverlay(true);
     }
   }
 
   function exportPdf() {
-    if (!analysis || !designedHtml) {
-      return;
-    }
-    if (status === "exporting") {
-      return;
-    }
-
-    setStatus("exporting");
-    try {
-      const fileName = `${slugify(analysis.employerName || brand.companyName)}-tailored-cv.pdf`;
-      printCvHtml(designedHtml, fileName);
-      setStatus("ready");
-      setMessage(
-        "Opened the print dialog. Choose 'Save as PDF' as the destination to download your tailored CV.",
-      );
-    } catch (error) {
-      if (error instanceof CvDesignerError) {
-        setMessage(error.message);
-        setStatus("error");
-      } else {
-        showError(error);
-      }
-    }
-  }
-
-  function showError(error: unknown) {
-    setStatus("error");
-    setMessage(error instanceof Error ? error.message : "Something went wrong.");
+    pipeline.exportPdf(branding.brand.companyName);
   }
 
   return (
@@ -358,233 +105,68 @@ export function App() {
 
       <section className="workspace-grid">
         <div className="input-stack">
-          <Panel icon={<Server />} title="Cloudflare Worker" step="01">
-            {hasConfiguredWorkerUrl && !isEditingWorkerUrl ? (
-              <div className="config-summary">
-                <BadgeCheck aria-hidden="true" />
-                <div>
-                  <strong>Worker URL loaded</strong>
-                  <span>{formatWorkerStatus(workerStatus, workerStatusDetail)}</span>
-                </div>
-                <button className="text-action" type="button" onClick={() => setIsEditingWorkerUrl(true)}>
-                  Change
-                </button>
-              </div>
-            ) : (
-              <>
-                <label>
-                  Cloudflare Worker URL
-                  <input
-                    value={workerUrl}
-                    onChange={(event) => saveWorkerUrl(event.target.value)}
-                    type="url"
-                    placeholder="https://cv-job-tailor-reader.your-account.workers.dev"
-                  />
-                </label>
-                {DEFAULT_WORKER_URL && workerUrl !== DEFAULT_WORKER_URL ? (
-                  <button className="text-action" type="button" onClick={resetWorkerUrl}>
-                    Use deployed Worker URL
-                  </button>
-                ) : null}
-                <p className="hint">{formatWorkerStatus(workerStatus, workerStatusDetail)}</p>
-              </>
-            )}
-            <p className="hint">
-              Required. The Worker holds the OpenAI key, reads career pages that block GitHub Pages, and proxies employer logos for the PDF.
-            </p>
-          </Panel>
+          <WorkerPanel
+            workerUrl={worker.workerUrl}
+            saveWorkerUrl={worker.saveWorkerUrl}
+            resetWorkerUrl={worker.resetWorkerUrl}
+            isEditingWorkerUrl={worker.isEditingWorkerUrl}
+            setIsEditingWorkerUrl={worker.setIsEditingWorkerUrl}
+            workerStatus={worker.workerStatus}
+            workerStatusDetail={worker.workerStatusDetail}
+            hasConfiguredWorkerUrl={worker.hasConfiguredWorkerUrl}
+            canResetToDefault={worker.canResetToDefault}
+          />
 
-          <Panel icon={<Link />} title="Job description" step="02">
-            <label>
-              Job URL
-              <input
-                value={jobUrl}
-                onChange={(event) => setJobUrl(event.target.value)}
-                type="url"
-                placeholder="https://company.com/careers/role"
-              />
-            </label>
-            {showJobFallback || jobText ? (
-              <section className="fallback-section">
-                <div className="fallback-head">
-                  <h3>Paste job description</h3>
-                  <button
-                    className="text-action"
-                    type="button"
-                    onClick={() => {
-                      setShowJobFallback(false);
-                      setJobText("");
-                    }}
-                  >
-                    Hide
-                  </button>
-                </div>
-                <textarea
-                  value={jobText}
-                  onChange={(event) => setJobText(event.target.value)}
-                  placeholder="Paste the job description here. Use this if the website blocks browser access."
-                />
-              </section>
-            ) : (
-              <button
-                className="text-action panel-foot-action"
-                type="button"
-                onClick={() => setShowJobFallback(true)}
-              >
-                Paste job description instead
-              </button>
-            )}
-          </Panel>
+          <JobPanel
+            jobUrl={jobUrl}
+            setJobUrl={setJobUrl}
+            jobText={jobText}
+            setJobText={setJobText}
+            showJobFallback={showJobFallback}
+            setShowJobFallback={setShowJobFallback}
+          />
 
-          <Panel icon={<Upload />} title="Upload CV" step="03">
-            <label className="upload-box">
-              <input
-                type="file"
-                accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={(event) => handleCvUpload(event.target.files?.[0])}
-              />
-              <FileText aria-hidden="true" />
-              <span>{cvFileName || "Choose a PDF or DOCX CV"}</span>
-            </label>
-            {cvText ? <p className="hint">{cvText.length.toLocaleString()} characters extracted locally.</p> : null}
-          </Panel>
+          <CvUploadPanel
+            cvFileName={pipeline.cvFileName}
+            cvText={pipeline.cvText}
+            onUpload={pipeline.handleCvUpload}
+          />
 
-          <Panel icon={<Palette />} title="Employer brand" step="04">
-            <label>
-              Employer website
-              <input
-                value={employerWebsiteUrl}
-                onChange={(event) => setEmployerWebsiteUrl(event.target.value)}
-                type="url"
-                placeholder="https://employer.com"
-              />
-            </label>
-            <button
-              className="brand-action"
-              disabled={
-                (!employerWebsiteUrl.trim() && !employerBrandSource.trim()) ||
-                status === "reading"
-              }
-              onClick={generateBrand}
-            >
-              <Palette aria-hidden="true" />
-              {brandGenerated ? "Re-generate brand" : "Generate brand"}
-            </button>
-            <p className="hint">{brandMessage}</p>
-            {brandGenerated ? (
-              <>
-                <div className="brand-preview">
-                  <div className="brand-swatch-pair">
-                    <span style={{ background: brand.primaryColor }} title={`Primary ${brand.primaryColor}`} />
-                    <span style={{ background: brand.accentColor }} title={`Accent ${brand.accentColor}`} />
-                  </div>
-                  <div>
-                    <strong>{brand.companyName}</strong>
-                    <span>
-                      {[
-                        brand.logoUrl ? "Logo found" : "No logo detected",
-                        brand.fontFamily || "Default font",
-                      ]
-                        .filter(Boolean)
-                        .join(" / ")}
-                    </span>
-                  </div>
-                </div>
-                {brand.palette?.length ? (
-                  <div className="palette-strip" aria-label="Extracted brand palette">
-                    {brand.palette.slice(0, 5).map((color) => (
-                      <span key={color} style={{ background: color }} title={color} />
-                    ))}
-                  </div>
-                ) : null}
-              </>
-            ) : null}
-            {showBrandFallback ? (
-              <section className="fallback-section">
-                <div className="fallback-head">
-                  <h3>Manual brand override</h3>
-                  <button
-                    className="text-action"
-                    type="button"
-                    onClick={() => {
-                      setShowBrandFallback(false);
-                      setEmployerBrandSource("");
-                    }}
-                  >
-                    Hide
-                  </button>
-                </div>
-                <label>
-                  Paste website text, HTML, or brand notes
-                  <textarea
-                    value={employerBrandSource}
-                    onChange={(event) => setEmployerBrandSource(event.target.value)}
-                    placeholder="Paste the employer homepage text, page source, logo URL, or colours such as #123456."
-                  />
-                </label>
-                <div className="brand-row">
-                  <label>
-                    Employer name
-                    <input
-                      value={brand.companyName}
-                      onChange={(event) => setBrand({ ...brand, companyName: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Logo URL
-                    <input
-                      value={brand.logoUrl || ""}
-                      onChange={(event) => setBrand({ ...brand, logoUrl: event.target.value })}
-                      placeholder="Optional"
-                    />
-                  </label>
-                </div>
-                <div className="swatches">
-                  <label>
-                    Primary
-                    <input
-                      type="color"
-                      value={brand.primaryColor}
-                      onChange={(event) => setBrand({ ...brand, primaryColor: event.target.value })}
-                    />
-                  </label>
-                  <label>
-                    Accent
-                    <input
-                      type="color"
-                      value={brand.accentColor}
-                      onChange={(event) => setBrand({ ...brand, accentColor: event.target.value })}
-                    />
-                  </label>
-                </div>
-              </section>
-            ) : (
-              <button
-                className="text-action panel-foot-action"
-                type="button"
-                onClick={() => setShowBrandFallback(true)}
-              >
-                Edit details manually
-              </button>
-            )}
-          </Panel>
+          <BrandPanel
+            employerWebsiteUrl={branding.employerWebsiteUrl}
+            setEmployerWebsiteUrl={branding.setEmployerWebsiteUrl}
+            employerBrandSource={branding.employerBrandSource}
+            setEmployerBrandSource={branding.setEmployerBrandSource}
+            brand={branding.brand}
+            setBrand={branding.setBrand}
+            brandGenerated={branding.brandGenerated}
+            brandMessage={branding.brandMessage}
+            showBrandFallback={branding.showBrandFallback}
+            setShowBrandFallback={branding.setShowBrandFallback}
+            generateBrand={branding.generateBrand}
+            isReading={pipeline.status === "reading"}
+          />
 
           <button
             className="primary-action"
-            disabled={!canAnalyse || status === "analysing" || status === "designing"}
+            disabled={!canAnalyse || pipeline.status === "analysing" || pipeline.status === "designing"}
             onClick={runAnalysis}
           >
             <Sparkles aria-hidden="true" />
             Analyse and tailor CV
           </button>
 
-          {message ? (
-            <div className={`status ${status === "error" ? "status-error" : ""}`}>
-              {status === "error" ? <AlertTriangle aria-hidden="true" /> : <BadgeCheck aria-hidden="true" />}
-              <span>{message}</span>
+          {pipeline.message ? (
+            <div className={`status ${pipeline.status === "error" ? "status-error" : ""}`}>
+              {pipeline.status === "error" ? (
+                <AlertTriangle aria-hidden="true" />
+              ) : (
+                <BadgeCheck aria-hidden="true" />
+              )}
+              <span>{pipeline.message}</span>
             </div>
           ) : null}
-          <ReadDiagnostics diagnostics={readDiagnostics} />
+          <ReadDiagnostics diagnostics={pipeline.readDiagnostics} />
         </div>
 
         <div className={`review-stack ${isOutputFullscreen ? "review-stack-fullscreen" : ""}`}>
@@ -616,16 +198,18 @@ export function App() {
             </button>
           </div>
           {activeOutput === "review" ? (
-            <ReviewPanel analysis={analysis} />
+            <ReviewPanel analysis={pipeline.analysis} />
           ) : (
             <>
-              {designedHtml && designInputs ? <DesignInputsStrip inputs={designInputs} /> : null}
-              <CvHtmlPreview html={designedHtml} />
+              {pipeline.designedHtml && pipeline.designInputs ? (
+                <DesignInputsStrip inputs={pipeline.designInputs} />
+              ) : null}
+              <CvHtmlPreview html={pipeline.designedHtml} />
             </>
           )}
           <button
             className="secondary-action"
-            disabled={!designedHtml || status === "exporting"}
+            disabled={!pipeline.designedHtml || pipeline.status === "exporting"}
             onClick={exportPdf}
           >
             <Download aria-hidden="true" />
@@ -634,9 +218,9 @@ export function App() {
         </div>
       </section>
 
-      {showReadyOverlay && analysis ? (
+      {showReadyOverlay && pipeline.analysis ? (
         <ReadyOverlay
-          employerName={analysis.employerName || brand.companyName}
+          employerName={pipeline.analysis.employerName || branding.brand.companyName}
           onDismiss={() => setShowReadyOverlay(false)}
           onOpenReview={() => {
             setActiveOutput("review");
@@ -656,230 +240,4 @@ export function App() {
       ) : null}
     </main>
   );
-}
-
-function ReadyOverlay({
-  employerName,
-  onDismiss,
-  onOpenReview,
-  onOpenCv,
-  onDownload,
-}: {
-  employerName: string;
-  onDismiss: () => void;
-  onOpenReview: () => void;
-  onOpenCv: () => void;
-  onDownload: () => void;
-}) {
-  return (
-    <div
-      className="overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="ready-overlay-title"
-      onClick={onDismiss}
-    >
-      <div className="overlay-card" onClick={(event) => event.stopPropagation()}>
-        <button
-          className="overlay-close"
-          type="button"
-          onClick={onDismiss}
-          aria-label="Dismiss"
-        >
-          <X aria-hidden="true" />
-        </button>
-        <BadgeCheck className="overlay-icon" aria-hidden="true" />
-        <h2 id="ready-overlay-title">Your tailored CV is ready</h2>
-        <p>
-          {employerName ? `${employerName} version generated.` : "Analysis complete."}{" "}
-          Review the evidence, open the CV preview, or download the branded PDF.
-        </p>
-        <div className="overlay-actions">
-          <button className="primary-action" type="button" onClick={onOpenCv}>
-            <Maximize2 aria-hidden="true" />
-            Open CV fullscreen
-          </button>
-          <button className="secondary-action" type="button" onClick={onOpenReview}>
-            <Sparkles aria-hidden="true" />
-            Open evidence review
-          </button>
-          <button className="text-action" type="button" onClick={onDownload}>
-            <Download aria-hidden="true" />
-            Download branded PDF
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DesignInputsStrip({ inputs }: { inputs: DesignInputs }) {
-  const items: { label: string; ok: boolean }[] = [
-    { label: "Your CV layout", ok: inputs.hadCvLayout },
-    { label: "Employer screenshot", ok: inputs.hadEmployerScreenshot },
-    { label: "Employer logo", ok: inputs.hadLogo },
-  ];
-  return (
-    <div className="design-inputs-strip" aria-label="Inputs sent to the designer">
-      <span className="design-inputs-strip-label">Inputs sent to designer</span>
-      <ul>
-        {items.map((item) => (
-          <li key={item.label} className={item.ok ? "ok" : "missing"}>
-            <span className="dot" aria-hidden="true" />
-            <span>{item.label}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function WorkingIndicator({ label }: { label: string }) {
-  return (
-    <div className="working-indicator" role="status" aria-live="polite">
-      <div>
-        <span>{label}</span>
-        <strong>Working</strong>
-      </div>
-      <div className="working-track" aria-hidden="true">
-        <span />
-      </div>
-    </div>
-  );
-}
-
-function getWorkingLabel(status: Status, workerStatus: WorkerStatus): string {
-  if (status === "reading") {
-    return "Reading the document or employer website";
-  }
-  if (status === "designing") {
-    return "Designing the CV from the employer's homepage";
-  }
-  if (status === "analysing") {
-    return "Comparing the job description with the CV";
-  }
-  if (status === "exporting") {
-    return "Preparing the PDF";
-  }
-  if (workerStatus === "checking") {
-    return "Checking the website reader";
-  }
-  return "";
-}
-
-function ReadDiagnostics({ diagnostics }: { diagnostics: ReadDiagnostic[] }) {
-  if (!diagnostics.length) {
-    return null;
-  }
-
-  return (
-    <section className="diagnostics-box">
-      <strong>Read diagnostics</strong>
-      <ul>
-        {diagnostics.map((item, index) => (
-          <li key={`${item.stage}-${index}`} className={item.ok ? "diagnostic-ok" : "diagnostic-fail"}>
-            <span>{item.stage}</span>
-            <p>{item.message}</p>
-            {item.detail ? <small>{item.detail}</small> : null}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function getErrorDiagnostics(error: unknown): ReadDiagnostic[] {
-  const diagnostics = (error as { diagnostics?: unknown })?.diagnostics;
-  return Array.isArray(diagnostics) ? (diagnostics as ReadDiagnostic[]) : [];
-}
-
-function Panel(props: { icon: React.ReactNode; title: string; step?: string; children: React.ReactNode }) {
-  return (
-    <section className="panel">
-      <div className="panel-title">
-        {props.step ? <span className="panel-step">{props.step}</span> : null}
-        {props.icon}
-        <h2>{props.title}</h2>
-      </div>
-      {props.children}
-    </section>
-  );
-}
-
-function normalizeWorkerUrl(value: string): string {
-  const trimmed = value.trim().replace(/\/+$/, "");
-  if (!trimmed) {
-    throw new Error("No Worker URL is configured.");
-  }
-  if (/^https?:\/\//i.test(trimmed)) {
-    return trimmed;
-  }
-  return `https://${trimmed}`;
-}
-
-function formatWorkerStatus(status: WorkerStatus, detail = ""): string {
-  if (status === "checking") {
-    return "Checking the configured Worker...";
-  }
-  if (status === "configured") {
-    return "Worker reachable. OpenAI key present. Ready to analyse.";
-  }
-  if (status === "missing-key") {
-    return `Worker reachable, but the OPENAI_API_KEY secret is not configured. ${detail}`.trim();
-  }
-  if (status === "unreachable") {
-    return `The Worker could not be reached from this browser. ${detail}`.trim();
-  }
-  return "Add the Worker URL to enable analysis, website reading, and brand extraction.";
-}
-
-function ReviewPanel({ analysis }: { analysis: AnalysisResult | null }) {
-  if (!analysis) {
-    return (
-      <section className="panel empty-state">
-        <span className="empty-state-eyebrow">Review</span>
-        <h2>Skills, evidence, and gaps will appear here.</h2>
-        <p>Run the analysis to see how the job's requirements map onto your CV — and what's missing.</p>
-      </section>
-    );
-  }
-
-  return (
-    <section className="panel">
-      <div className="panel-title">
-        <Sparkles aria-hidden="true" />
-        <h2>Evidence review</h2>
-      </div>
-      <div className="skill-list">
-        {analysis.skills.map((skill, index) => (
-          <span key={index} className={`skill skill-${skill.priority}`}>
-            {skill.name}
-          </span>
-        ))}
-      </div>
-      <div className="evidence-list">
-        {analysis.tailoredCv.evidenceMatches.map((match, index) => (
-          <article key={index} className="evidence-item">
-            <strong>{match.skill}</strong>
-            <p>{match.cvEvidence}</p>
-            <span>{match.confidence}</span>
-          </article>
-        ))}
-      </div>
-      {analysis.tailoredCv.gaps.length ? (
-        <div className="gap-box">
-          <strong>Unsupported gaps</strong>
-          <ul>
-            {analysis.tailoredCv.gaps.map((gap, index) => (
-              <li key={index}>{gap}</li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function slugify(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "tailored-cv";
 }

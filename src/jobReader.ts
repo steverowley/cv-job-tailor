@@ -35,6 +35,9 @@ const DEFAULT_BRAND: BrandSettings = {
 };
 
 const DEFAULT_WORKER_URL = import.meta.env.VITE_CLOUDFLARE_WORKER_URL || "";
+// Same inlined anti-abuse token the analysis endpoints send; see App.tsx for
+// why this is obscurity, not a secret. The Worker requires it on /read too.
+const ANALYSE_SHARED_SECRET = import.meta.env.VITE_ANALYSE_SHARED_SECRET || "";
 
 export class BrandReadError extends Error {
   constructor(
@@ -236,11 +239,13 @@ async function readViaWorker(
   directStatus?: number;
 }> {
   const endpoint = `${workerUrl.replace(/\/+$/, "")}/read`;
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (ANALYSE_SHARED_SECRET) {
+    headers.authorization = `Bearer ${ANALYSE_SHARED_SECRET}`;
+  }
   const response = await fetch(endpoint, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-    },
+    headers,
     body: JSON.stringify({ url: pageUrl }),
   });
 

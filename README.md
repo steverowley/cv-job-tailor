@@ -22,8 +22,8 @@ If a job site blocks the Worker too, paste the job description into the fallback
 The Worker code is in `worker/index.js` and is configured by `wrangler.toml`. The Worker exposes:
 
 - `GET /status` — reports whether `OPENAI_API_KEY`, `ANALYSE_SHARED_SECRET`, and `JINA_API_KEY` are configured.
-- `POST /read` — fetches a public HTML page server-side.
-- `POST /analyse` — sends the job + CV text to the OpenAI Responses API (gpt-5) and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set.
+- `POST /read` — fetches a public HTML page server-side. Same auth as `/analyse` when the shared secret is set.
+- `POST /analyse` — sends the job + CV text to the OpenAI Responses API (gpt-5) and returns the structured analysis. Requires `Authorization: Bearer <ANALYSE_SHARED_SECRET>` if the shared secret is set. Clients that send `Accept: text/event-stream` get live progress events (reading → matching → drafting) followed by the result; everything else gets a single JSON response.
 - `POST /design-cv-html` — takes the structured CV + brand signals + employer homepage URL, captures a Microlink screenshot, and asks gpt-5 with vision to produce a self-contained on-brand HTML CV. Same auth as `/analyse`. The Worker fetches the employer logo server-side and embeds it as a data URL in the generated HTML. The browser then renders the HTML through the native print dialog, where the user picks **Save as PDF**.
 
 It allows browser calls from `https://steverowley.github.io` plus local development origins.
@@ -50,6 +50,15 @@ https://cv-job-tailor-reader.your-account.workers.dev
 7. Re-run the GitHub Pages workflow, or push a small change to trigger it.
 
 You can also paste the Worker URL into the app's Worker field for immediate testing. The app keeps it in browser session storage.
+
+### Protecting the OpenAI bill
+
+The shared secret ships inside the public JS bundle, so treat it as a speed bump, not a lock. Two dashboard settings bound the damage if someone extracts it (neither needs a code change):
+
+1. **OpenAI spend caps.** In the OpenAI dashboard under *Settings → Limits*, set a monthly budget and a notification threshold. This is the hard backstop: even if every other layer fails, the bill stops here. A full pipeline run costs ≈ $0.70–1.10, so a $20–30 monthly cap leaves generous headroom for personal use.
+2. **Cloudflare rate limiting.** In the Cloudflare dashboard under *Security → WAF → Rate limiting rules*, add a per-IP rule for `POST /analyse` and `POST /design-cv-html` (for example: 10 requests per minute per IP, block for an hour on breach, returning 429). A second, looser rule on `POST /read` (e.g. 30/min) stops the page-fetch proxy being scripted. Free-plan zones get one rate-limiting rule — prioritise the OpenAI endpoints.
+
+If abuse appears despite both (rotating IPs), the contingency plan is a Turnstile challenge — tracked in [#34](https://github.com/steverowley/cv-job-tailor/issues/34).
 
 ## Local development
 
