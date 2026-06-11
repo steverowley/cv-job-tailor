@@ -78,7 +78,8 @@ The Vite base path is configured for GitHub Pages at `/cv-job-tailor/`.
 ## Tests
 
 ```bash
-npm test
+npm test       # vitest unit tests
+npm run lint   # eslint (also runs in CI)
 ```
 
 ## Eval suite
