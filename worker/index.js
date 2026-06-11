@@ -433,6 +433,12 @@ export default {
 };
 
 async function readPage(request, env, corsHeaders) {
+  // Same auth as /analyse: without it, anyone who sets a forged Origin header
+  // can use the Worker as a free page-fetch proxy (and burn Jina credits).
+  if (!requireSharedSecret(request, env)) {
+    return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
+  }
+
   try {
     const body = await request.json();
     const targetUrl = validateTargetUrl(body?.url);
@@ -519,12 +525,8 @@ async function analyseWithOpenAI(request, env, corsHeaders) {
     return json({ error: "The Worker is missing its OPENAI_API_KEY secret." }, 500, corsHeaders);
   }
 
-  if (env.ANALYSE_SHARED_SECRET) {
-    const auth = request.headers.get("authorization") || "";
-    const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-    if (!timingSafeEqual(provided, env.ANALYSE_SHARED_SECRET)) {
-      return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
-    }
+  if (!requireSharedSecret(request, env)) {
+    return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
   }
 
   let payload;
@@ -642,12 +644,8 @@ async function designCvHtml(request, env, corsHeaders) {
     return json({ error: "The Worker is missing its OPENAI_API_KEY secret." }, 500, corsHeaders);
   }
 
-  if (env.ANALYSE_SHARED_SECRET) {
-    const auth = request.headers.get("authorization") || "";
-    const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
-    if (!timingSafeEqual(provided, env.ANALYSE_SHARED_SECRET)) {
-      return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
-    }
+  if (!requireSharedSecret(request, env)) {
+    return json({ error: "Missing or invalid shared secret." }, 401, corsHeaders);
   }
 
   let payload;
@@ -1366,6 +1364,15 @@ export async function fetchWithTimeout(url, init, timeoutMs) {
 
 export function isAbortError(error) {
   return Boolean(error) && (error.name === "AbortError" || error.code === "ABORT_ERR");
+}
+
+// True when the request may proceed: either no shared secret is configured,
+// or the caller presented the matching Bearer token.
+export function requireSharedSecret(request, env) {
+  if (!env.ANALYSE_SHARED_SECRET) return true;
+  const auth = request.headers.get("authorization") || "";
+  const provided = auth.startsWith("Bearer ") ? auth.slice("Bearer ".length) : "";
+  return timingSafeEqual(provided, env.ANALYSE_SHARED_SECRET);
 }
 
 export function timingSafeEqual(a, b) {
