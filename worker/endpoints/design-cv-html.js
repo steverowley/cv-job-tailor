@@ -167,7 +167,7 @@ export async function designCvHtml(request, env, corsHeaders) {
     try {
       const screenshot = await fetchMicrolinkScreenshot(validatedUrl);
       screenshotUrl = screenshot.url;
-    } catch (error) {
+    } catch {
       // Soft-fail: design without the screenshot if Microlink is down.
       screenshotUrl = "";
     }

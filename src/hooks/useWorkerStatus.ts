@@ -14,6 +14,9 @@ export function useWorkerStatus() {
 
   useEffect(() => {
     if (!workerUrl.trim()) {
+      // Resetting to idle when the URL is cleared is the intended behaviour;
+      // the cascading-render cost is one extra pass on an empty form.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWorkerStatus("idle");
       setWorkerStatusDetail("");
       return;
