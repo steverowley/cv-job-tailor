@@ -36,10 +36,9 @@ export async function extractFirstPageImage(file: File): Promise<string | null> 
     const canvas = document.createElement("canvas");
     canvas.width = Math.floor(viewport.width);
     canvas.height = Math.floor(viewport.height);
-    const context = canvas.getContext("2d");
-    if (!context) return null;
+    if (!canvas.getContext("2d")) return null;
 
-    await page.render({ canvasContext: context, viewport }).promise;
+    await page.render({ canvas, viewport }).promise;
     return canvas.toDataURL("image/jpeg", 0.85);
   } catch {
     return null;
