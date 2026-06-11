@@ -36,6 +36,27 @@ describe("designCvHtml", () => {
     ).rejects.toBeInstanceOf(CvDesignerError);
   });
 
+  it("turns a 429 with an HTML body into a friendly rate-limit error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<html>Blocked</html>", {
+        status: 429,
+        headers: { "content-type": "text/html" },
+      }),
+    );
+
+    await expect(
+      designCvHtml({
+        workerUrl: "https://worker.example.com",
+        structuredCv: FULL_CV,
+        brand: BRAND,
+      }),
+    ).rejects.toMatchObject({
+      name: "CvDesignerError",
+      status: 429,
+      message: expect.stringMatching(/Too many requests/),
+    });
+  });
+
   it("POSTs the structured CV, brand, and employer details to /design-cv-html", async () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
