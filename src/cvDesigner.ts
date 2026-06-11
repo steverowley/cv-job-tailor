@@ -1,4 +1,5 @@
 import { BrandSettings, FullCv } from "./types";
+import { rateLimitMessage } from "./workerErrors";
 
 export class CvDesignerError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -70,6 +71,12 @@ export async function designCvHtml(params: {
     throw new CvDesignerError(
       `The browser could not reach the Worker. ${error instanceof Error ? error.message : ""}`.trim(),
     );
+  }
+
+  // Before the body parse: rate-limit blocks often carry an HTML body that
+  // would otherwise surface as the misleading "non-JSON response" error.
+  if (response.status === 429) {
+    throw new CvDesignerError(rateLimitMessage(response), 429);
   }
 
   const rawText = await response.text();

@@ -120,6 +120,27 @@ describe("analyseCvAgainstJob", () => {
     ).rejects.toThrow(/tailoredCv\.fullCv/);
   });
 
+  it("turns a 429 with an HTML body into a friendly rate-limit error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("<html>Blocked</html>", {
+        status: 429,
+        headers: { "content-type": "text/html", "retry-after": "30" },
+      }),
+    );
+
+    await expect(
+      analyseCvAgainstJob({
+        workerUrl: "https://worker.example.com",
+        jobText: "JOB",
+        cvText: "CV",
+      }),
+    ).rejects.toMatchObject({
+      name: "AnalysisError",
+      status: 429,
+      message: expect.stringMatching(/Too many requests.*about 30 seconds/),
+    });
+  });
+
   it("asks for an event stream when onProgress is provided and consumes it", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(

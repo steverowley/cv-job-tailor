@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildFallbackBrand,
   deriveAccentColor,
   findFontHint,
   parseBrandSource,
   parseHtmlPage,
+  readJobDescription,
 } from "./jobReader";
 
 describe("parseBrandSource", () => {
@@ -155,6 +156,33 @@ describe("deriveAccentColor", () => {
 
   it("is deterministic for the same primary", () => {
     expect(deriveAccentColor("#22aa55")).toBe(deriveAccentColor("#22aa55"));
+  });
+});
+
+describe("readJobDescription", () => {
+  it("surfaces a friendly rate-limit diagnostic when the Worker returns 429", async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("<html>Blocked</html>", {
+          status: 429,
+          headers: { "content-type": "text/html", "retry-after": "60" },
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    await expect(
+      readJobDescription("https://jobs.example/role", "", "https://worker.example.com"),
+    ).rejects.toMatchObject({
+      diagnostics: expect.arrayContaining([
+        expect.objectContaining({
+          stage: "worker",
+          status: 429,
+          message: expect.stringMatching(/Too many requests.*about 60 seconds/),
+        }),
+      ]),
+    });
+    fetchSpy.mockRestore();
   });
 });
 

@@ -1,4 +1,5 @@
 import { BrandSettings } from "./types";
+import { rateLimitMessage } from "./workerErrors";
 
 export interface JobReadResult {
   text: string;
@@ -248,6 +249,13 @@ async function readViaWorker(
     headers,
     body: JSON.stringify({ url: pageUrl }),
   });
+
+  if (response.status === 429) {
+    throw Object.assign(new Error(rateLimitMessage(response)), {
+      status: 429,
+      url: endpoint,
+    });
+  }
 
   if (!response.ok) {
     const details = await readErrorBody(response);

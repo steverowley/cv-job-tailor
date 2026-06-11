@@ -1,4 +1,5 @@
 import { AnalysisResult } from "./types";
+import { rateLimitMessage } from "./workerErrors";
 
 export class AnalysisError extends Error {
   constructor(message: string, readonly status?: number) {
@@ -52,6 +53,13 @@ export async function analyseCvAgainstJob(params: {
     const analysis = await consumeAnalysisEventStream(response.body, onProgress);
     assertValidAnalysis(analysis, response.status);
     return analysis;
+  }
+
+  // Checked before the body parse: rate-limit blocks (e.g. Cloudflare WAF
+  // rules) often carry an HTML body that would otherwise surface as the
+  // misleading "non-JSON response" error.
+  if (response.status === 429) {
+    throw new AnalysisError(rateLimitMessage(response), 429);
   }
 
   const rawText = await response.text();

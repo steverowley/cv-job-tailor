@@ -1,3 +1,3 @@
 name = "cv-job-tailor-reader"
 main = "worker/index.js"
-compatibility_date = "2026-03-01"
+compatibility_date = "2026-06-01"
